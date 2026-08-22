@@ -64,10 +64,15 @@ export function JobStatus({ jobId }: Props) {
     };
 
     fetchJob();
+
+    // Only poll if job is not in terminal state
+    const isTerminal = displayJob?.status === 'deployed' || displayJob?.status === 'failed';
+    if (isTerminal) return;
+
     const interval = setInterval(fetchJob, 3000); // Poll every 3 seconds as fallback
 
     return () => clearInterval(interval);
-  }, [jobId]);
+  }, [jobId, displayJob?.status]);
 
   const displayJob = currentJob?.id === jobId ? currentJob : job;
 

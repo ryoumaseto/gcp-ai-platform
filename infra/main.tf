@@ -20,6 +20,7 @@ resource "google_project_service" "required_apis" {
   for_each = toset([
     "cloudsql.googleapis.com",          # Cloud SQL
     "compute.googleapis.com",           # Compute Engine
+    "iam.googleapis.com",               # IAM (for service accounts)
     "run.googleapis.com",               # Cloud Run
     "cloudbuild.googleapis.com",        # Cloud Build
     "artifactregistry.googleapis.com",  # Artifact Registry

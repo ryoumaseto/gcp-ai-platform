@@ -14,7 +14,7 @@ interface ProgressEvent {
 }
 
 export function useProgressListener(jobId?: string) {
-  const { updateJob } = useJobStore();
+  const updateJob = useJobStore((state) => state.updateJob);
 
   useEffect(() => {
     if (!jobId) return;

@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { PromptForm } from '@/components/PromptForm';
 import { JobStatus } from '@/components/JobStatus';
 import { useJobStore } from '@/lib/store';

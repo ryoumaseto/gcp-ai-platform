@@ -11,9 +11,7 @@ export function PromptForm() {
   const [language, setLanguage] = useState('typescript');
   const [temperature, setTemperature] = useState(0.3);
   const [dbType, setDbType] = useState('postgresql');
-  const [isLoading, setIsLoading] = useState(false);
-
-  const { addJob, setLoading } = useJobStore();
+  const { addJob, isLoading, setLoading } = useJobStore();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,7 +21,6 @@ export function PromptForm() {
       return;
     }
 
-    setIsLoading(true);
     setLoading(true);
 
     try {
@@ -55,7 +52,6 @@ export function PromptForm() {
       console.error('Error:', error);
       toast.error('Failed to start app generation');
     } finally {
-      setIsLoading(false);
       setLoading(false);
     }
   };

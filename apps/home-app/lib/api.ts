@@ -28,21 +28,11 @@ export const generateApp = async (data: GenerateRequest): Promise<GenerateRespon
   return response.data;
 };
 
-export const getJobStatus = async (jobId: string): Promise<GenerationJob> => {
-  const response = await api.get(`/api/jobs/${jobId}`);
-  return response.data;
-};
-
 export const approveDesign = async (jobId: string, designApproved: boolean): Promise<{ success: boolean }> => {
   const response = await api.post(`/api/jobs/${jobId}/approve-design`, {
     designApproved,
   });
   return response.data;
-};
-
-export const listJobs = async (): Promise<GenerationJob[]> => {
-  const response = await api.get('/api/jobs');
-  return response.data.jobs;
 };
 
 export const getJob = async (jobId: string): Promise<GenerationJob> => {
