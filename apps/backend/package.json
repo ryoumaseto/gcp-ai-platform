@@ -1,0 +1,31 @@
+{
+  "name": "backend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "node server.js",
+    "dev-db": "node server-db.js",
+    "start": "node server-db.js",
+    "test": "jest --passWithNoTests",
+    "test:coverage": "jest --coverage",
+    "security-check": "node security/securityChecklist.js",
+    "quality-check": "npm run security-check && npm run test:coverage"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^8.6.2",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.23.0",
+    "pg-hstore": "^2.3.4",
+    "sequelize": "^6.37.8",
+    "sqlite3": "^6.0.1",
+    "uuid": "^14.0.2"
+  },
+  "devDependencies": {
+    "jest": "^30.4.2"
+  }
+}

@@ -1,37 +1,44 @@
 import axios from 'axios';
 import { GenerationJob } from './store';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
-
 const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
 });
 
-export interface GenerateRequest {
-  prompt: string;
+// Interceptor: Authorization ヘッダーを自動付与
+api.interceptors.request.use((config) => {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+}, (error) => {
+  return Promise.reject(error);
+});
+
+// Interceptor: 401 エラー時はログインページへリダイレクト
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        window.location.href = '/auth/login';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
+export const generateApp = async (payload: {
+  description: string;
   appName: string;
   language: string;
-  temperature: number;
   dbType: string;
-}
-
-export interface GenerateResponse {
-  jobId: string;
-  status: string;
-}
-
-export const generateApp = async (data: GenerateRequest): Promise<GenerateResponse> => {
-  const response = await api.post('/api/generate', data);
-  return response.data;
-};
-
-export const approveDesign = async (jobId: string, designApproved: boolean): Promise<{ success: boolean }> => {
-  const response = await api.post(`/api/jobs/${jobId}/approve-design`, {
-    designApproved,
-  });
+  model: string;
+}): Promise<GenerationJob> => {
+  const response = await api.post('/api/generate', payload);
   return response.data;
 };
 
@@ -40,4 +47,12 @@ export const getJob = async (jobId: string): Promise<GenerationJob> => {
   return response.data;
 };
 
-export default api;
+export const approveDesign = async (jobId: string): Promise<GenerationJob> => {
+  const response = await api.post(`/api/jobs/${jobId}/approve-design`);
+  return response.data;
+};
+
+export const rejectDesign = async (jobId: string): Promise<GenerationJob> => {
+  const response = await api.post(`/api/jobs/${jobId}/reject-design`);
+  return response.data;
+};

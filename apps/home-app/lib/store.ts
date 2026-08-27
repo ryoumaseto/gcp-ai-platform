@@ -2,64 +2,51 @@ import { create } from 'zustand';
 
 export interface GenerationJob {
   id: string;
-  status: 'pending' | 'design_generating' | 'design_review' | 'approved' | 'generating' | 'testing' | 'security_scan' | 'ready' | 'deployed' | 'failed';
+  status: 'pending' | 'parsing' | 'design_review' | 'approved' | 'generating' | 'testing' | 'deployed' | 'failed';
   prompt: string;
+  appName: string;
+  language: 'TypeScript' | 'Python' | 'Go';
+  dbType: 'PostgreSQL' | 'MySQL' | 'MongoDB';
+  model: string;
   designDocument?: string;
-  appName?: string;
-  language?: string;
-  temperature?: number;
-  createdAt: string;
-  updatedAt: string;
   appUrl?: string;
   error?: string;
-  progress?: number;
+  progress: number;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
-export interface User {
-  id: string;
-  email: string;
-  name?: string;
-}
-
-interface JobStore {
+interface Store {
   currentJob: GenerationJob | null;
   jobs: GenerationJob[];
-  user: User | null;
   isLoading: boolean;
+  user: { id: string; email: string } | null;
+  jobStats: { completed: number; total: number; limit: number; canCreate: boolean };
 
   setCurrentJob: (job: GenerationJob | null) => void;
   addJob: (job: GenerationJob) => void;
   updateJob: (id: string, updates: Partial<GenerationJob>) => void;
-  setUser: (user: User | null) => void;
-  setLoading: (isLoading: boolean) => void;
+  setLoading: (loading: boolean) => void;
+  setUser: (user: { id: string; email: string } | null) => void;
+  setJobStats: (stats: Store['jobStats']) => void;
 }
 
-export const useJobStore = create<JobStore>((set) => ({
+export const useStore = create<Store>((set) => ({
   currentJob: null,
   jobs: [],
-  user: null,
   isLoading: false,
+  user: null,
+  jobStats: { completed: 0, total: 0, limit: 3, canCreate: true },
 
   setCurrentJob: (job) => set({ currentJob: job }),
-
-  addJob: (job) =>
-    set((state) => ({
-      jobs: [job, ...state.jobs],
-      currentJob: job,
-    })),
-
+  addJob: (job) => set((state) => ({ jobs: [job, ...state.jobs] })),
   updateJob: (id, updates) =>
-    set((state) => {
-      const newJobs = state.jobs.map((j) =>
-        j.id === id ? { ...j, ...updates, updatedAt: new Date().toISOString() } : j
-      );
-      const isCurrentJob = state.currentJob?.id === id;
-      return {
-        jobs: newJobs,
-        currentJob: isCurrentJob ? { ...state.currentJob, ...updates, updatedAt: new Date().toISOString() } : state.currentJob,
-      };
-    }),
-
+    set((state) => ({
+      jobs: state.jobs.map((j) => (j.id === id ? { ...j, ...updates } : j)),
+      currentJob:
+        state.currentJob?.id === id ? { ...state.currentJob, ...updates } : state.currentJob,
+    })),
+  setLoading: (loading) => set({ isLoading: loading }),
   setUser: (user) => set({ user }),
-  setLoading: (isLoading) => set({ isLoading }),
+  setJobStats: (stats) => set({ jobStats: stats }),
 }));

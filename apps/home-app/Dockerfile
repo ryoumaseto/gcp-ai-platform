@@ -1,12 +1,15 @@
+# Build stage
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
+COPY pnpm-lock.yaml ./
+COPY pnpm-workspace.yaml ./
 
 # Install dependencies
-RUN npm ci
+RUN npm install -g pnpm && pnpm install --frozen-lockfile
 
 # Copy source code
 COPY . .
@@ -14,22 +17,26 @@ COPY . .
 # Build Next.js app
 RUN npm run build
 
-# Production stage
+# Runtime stage
 FROM node:20-alpine
 
 WORKDIR /app
 
-ENV NODE_ENV=production
-EXPOSE 3000
+# Install pnpm globally
+RUN npm install -g pnpm
 
-# Copy package files
-COPY package*.json ./
-
-# Copy pre-built dependencies from builder
-COPY --from=builder /app/node_modules ./node_modules
-
-# Copy built app and public files from builder
+# Copy built app from builder
+COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
+COPY --from=builder /app/node_modules ./node_modules
 
-CMD ["npm", "start"]
+# Expose port
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3000/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})" || exit 1
+
+# Start app
+CMD ["npm", "run", "start"]

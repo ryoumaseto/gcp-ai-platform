@@ -1,218 +1,157 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useStore, GenerationJob } from '@/lib/store';
+import { getJob, approveDesign, rejectDesign } from '@/lib/api';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { Button } from './ui/button';
 import toast from 'react-hot-toast';
-import { useProgressListener } from '@/hooks/useProgressListener';
-import { approveDesign, getJob } from '@/lib/api';
-import { useJobStore, GenerationJob } from '@/lib/store';
 
-const STATUS_LABELS: Record<GenerationJob['status'], string> = {
-  pending: 'Pending',
-  design_generating: 'Generating Design',
-  design_review: 'Review Design',
-  approved: 'Approved - Generating Code',
-  generating: 'Generating Code',
-  testing: 'Running Tests',
-  security_scan: 'Security Scan',
-  ready: 'Ready to Deploy',
-  deployed: 'Deployed',
-  failed: 'Failed',
-};
-
-const STATUS_COLORS: Record<GenerationJob['status'], string> = {
-  pending: 'bg-slate-100 text-slate-700',
-  design_generating: 'bg-blue-100 text-blue-700',
-  design_review: 'bg-amber-100 text-amber-700',
-  approved: 'bg-green-100 text-green-700',
-  generating: 'bg-blue-100 text-blue-700',
-  testing: 'bg-purple-100 text-purple-700',
-  security_scan: 'bg-orange-100 text-orange-700',
-  ready: 'bg-green-100 text-green-700',
-  deployed: 'bg-emerald-100 text-emerald-700',
-  failed: 'bg-red-100 text-red-700',
-};
-
-const PROGRESS_STEPS = [
-  { status: 'design_generating' as const, label: 'Design', progress: 20 },
-  { status: 'design_review' as const, label: 'Review', progress: 40 },
-  { status: 'generating' as const, label: 'Code', progress: 60 },
-  { status: 'testing' as const, label: 'Tests', progress: 80 },
-  { status: 'security_scan' as const, label: 'Security', progress: 90 },
-  { status: 'ready' as const, label: 'Ready', progress: 100 },
-];
-
-interface Props {
+interface JobStatusProps {
   jobId: string;
 }
 
-export function JobStatus({ jobId }: Props) {
+export default function JobStatus({ jobId }: JobStatusProps) {
   const [job, setJob] = useState<GenerationJob | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [showDesign, setShowDesign] = useState(false);
-  const [isApproving, setIsApproving] = useState(false);
-
-  useProgressListener(jobId);
-  const { currentJob, updateJob } = useJobStore();
 
   useEffect(() => {
+    let interval: NodeJS.Timeout;
+
     const fetchJob = async () => {
       try {
-        const jobData = await getJob(jobId);
-        setJob(jobData);
+        const data = await getJob(jobId);
+        setJob(data);
+
+        // Terminal state に到達したら polling 停止
+        if (data.status === 'deployed' || data.status === 'failed') {
+          clearInterval(interval);
+        }
       } catch (error) {
-        console.error('Error fetching job:', error);
+        console.error('Failed to fetch job:', error);
+      } finally {
+        setIsLoading(false);
       }
     };
 
     fetchJob();
-
-    // Only poll if job is not in terminal state
-    const isTerminal = displayJob?.status === 'deployed' || displayJob?.status === 'failed';
-    if (isTerminal) return;
-
-    const interval = setInterval(fetchJob, 3000); // Poll every 3 seconds as fallback
-
+    interval = setInterval(fetchJob, 3000);
     return () => clearInterval(interval);
-  }, [jobId, displayJob?.status]);
+  }, [jobId]);
 
-  const displayJob = currentJob?.id === jobId ? currentJob : job;
+  if (isLoading || !job) return <div>読み込み中...</div>;
 
-  if (!displayJob) {
-    return (
-      <div className="bg-white rounded-lg shadow p-8 text-center">
-        <div className="animate-spin inline-block w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full"></div>
-        <p className="text-slate-600 mt-4">Loading job status...</p>
-      </div>
-    );
-  }
+  const statusLabels: Record<string, string> = {
+    pending: '待機中',
+    design_review: '設計レビュー',
+    approved: '承認済み',
+    deployed: 'デプロイ完了',
+    failed: 'エラー',
+  };
 
-  const handleApproveDesign = async (approved: boolean) => {
-    setIsApproving(true);
+  const handleApprove = async () => {
     try {
-      await approveDesign(jobId, approved);
-      updateJob(jobId, { status: approved ? 'approved' : 'failed' });
-      toast.success(approved ? 'Design approved! Code generation started.' : 'Design rejected.');
+      const updated = await approveDesign(jobId);
+      setJob(updated);
+      toast.success('設計を承認しました');
     } catch (error) {
-      console.error('Error:', error);
-      toast.error('Failed to process design decision');
-    } finally {
-      setIsApproving(false);
+      toast.error('エラーが発生しました');
     }
   };
 
-  const progressPercent = displayJob.progress ?? 0;
+  const handleReject = async () => {
+    try {
+      const updated = await rejectDesign(jobId);
+      setJob(updated);
+      toast.error('設計を却下しました');
+    } catch (error) {
+      toast.error('エラーが発生しました');
+    }
+  };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-lg font-bold text-slate-900">{displayJob.appName}</h3>
-            <p className="text-sm text-slate-600">{displayJob.prompt}</p>
-          </div>
-          <span
-            className={`px-4 py-2 rounded-full text-sm font-medium ${
-              STATUS_COLORS[displayJob.status]
-            }`}
-          >
-            {STATUS_LABELS[displayJob.status]}
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex justify-between items-center">
+          <span>{job.appName}</span>
+          <span className="text-sm font-normal px-3 py-1 bg-blue-100 text-blue-800 rounded">
+            {statusLabels[job.status]}
           </span>
-        </div>
-
-        {/* Progress Bar */}
-        <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
-          <div
-            className="bg-blue-600 h-full transition-all duration-300"
-            style={{ width: `${progressPercent}%` }}
-          />
-        </div>
-        <p className="text-xs text-slate-600 mt-2">{progressPercent}% complete</p>
-      </div>
-
-      {/* Progress Steps */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h4 className="font-semibold text-slate-900 mb-4">Progress</h4>
-        <div className="flex gap-2">
-          {PROGRESS_STEPS.map((step, idx) => {
-            const isCompleted =
-              PROGRESS_STEPS.findIndex((s) => s.status === displayJob.status) >= idx;
-            return (
-              <div
-                key={step.status}
-                className={`flex-1 py-2 px-3 rounded-lg text-center text-xs font-medium transition ${
-                  isCompleted
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'bg-slate-100 text-slate-600'
-                }`}
-              >
-                {step.label}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Design Review */}
-      {displayJob.status === 'design_review' && displayJob.designDocument && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h4 className="font-semibold text-slate-900 mb-4">Design Document</h4>
-          <button
-            onClick={() => setShowDesign(!showDesign)}
-            className="text-blue-600 hover:text-blue-700 text-sm font-medium mb-4"
-          >
-            {showDesign ? '▼ Hide Design' : '▶ Show Design'}
-          </button>
-
-          {showDesign && (
-            <div className="bg-slate-50 rounded p-4 mb-6 max-h-96 overflow-y-auto">
-              <pre className="text-xs text-slate-700 whitespace-pre-wrap font-mono">
-                {displayJob.designDocument}
-              </pre>
-            </div>
-          )}
-
-          <div className="flex gap-4">
-            <button
-              onClick={() => handleApproveDesign(true)}
-              disabled={isApproving}
-              className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-slate-400 text-white font-medium py-2 px-4 rounded-lg transition"
-            >
-              {isApproving ? 'Processing...' : '✓ Approve & Generate Code'}
-            </button>
-            <button
-              onClick={() => handleApproveDesign(false)}
-              disabled={isApproving}
-              className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-slate-400 text-white font-medium py-2 px-4 rounded-lg transition"
-            >
-              {isApproving ? 'Processing...' : '✗ Reject'}
-            </button>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div>
+          <div className="flex justify-between mb-2">
+            <span className="text-sm font-medium">進捗</span>
+            <span className="text-sm text-gray-600">{job.progress}%</span>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-2">
+            <div
+              className="bg-blue-600 h-2 rounded-full transition-all"
+              style={{ width: `${job.progress}%` }}
+            />
           </div>
         </div>
-      )}
 
-      {/* Completion */}
-      {displayJob.status === 'deployed' && displayJob.appUrl && (
-        <div className="bg-emerald-50 border-2 border-emerald-200 rounded-lg p-6">
-          <h4 className="font-semibold text-emerald-900 mb-2">✓ App Deployed!</h4>
-          <p className="text-emerald-700 mb-4">Your app is now live and ready to use.</p>
-          <a
-            href={displayJob.appUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-block bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2 px-6 rounded-lg transition"
-          >
-            Open App →
-          </a>
-        </div>
-      )}
+        {job.status === 'design_review' && job.designDocument && (
+          <div className="space-y-3">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={() => setShowDesign(!showDesign)}
+            >
+              {showDesign ? '設計書を隠す' : '設計書を表示'}
+            </Button>
 
-      {/* Error */}
-      {displayJob.status === 'failed' && displayJob.error && (
-        <div className="bg-red-50 border-2 border-red-200 rounded-lg p-6">
-          <h4 className="font-semibold text-red-900 mb-2">✗ Generation Failed</h4>
-          <p className="text-red-700">{displayJob.error}</p>
-        </div>
-      )}
-    </div>
+            {showDesign && (
+              <div className="bg-gray-50 border border-gray-200 rounded-md p-4 max-h-64 overflow-y-auto">
+                <pre className="text-xs whitespace-pre-wrap">{job.designDocument}</pre>
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <Button
+                type="button"
+                className="flex-1 bg-green-600 hover:bg-green-700"
+                onClick={handleApprove}
+              >
+                承認
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                className="flex-1"
+                onClick={handleReject}
+              >
+                却下
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {job.status === 'deployed' && job.appUrl && (
+          <div className="space-y-3">
+            <div className="p-4 bg-green-50 border border-green-200 rounded-md">
+              <p className="text-sm text-green-800">✓ アプリがデプロイされました</p>
+            </div>
+            <Button
+              type="button"
+              className="w-full"
+              onClick={() => window.open(job.appUrl, '_blank')}
+            >
+              アプリを開く
+            </Button>
+          </div>
+        )}
+
+        {job.status === 'failed' && (
+          <div className="p-4 bg-red-50 border border-red-200 rounded-md">
+            <p className="text-sm text-red-800">エラー: {job.error}</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

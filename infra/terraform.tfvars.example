@@ -1,0 +1,23 @@
+# ===== GCP Configuration =====
+gcp_project_id = "YOUR_GCP_PROJECT_ID"
+gcp_region     = "us-central1"
+environment    = "prod"
+
+# ===== Database Configuration =====
+db_version         = "15"
+db_tier            = "db-f1-micro"
+db_backup_enabled  = true
+
+# ===== Cloud Run Configuration =====
+frontend_memory = "512Mi"
+backend_memory  = "512Mi"
+
+# ===== Security Configuration =====
+enable_https_only = true
+
+# ===== Labels =====
+labels = {
+  project     = "app-gen"
+  managed_by  = "terraform"
+  environment = "production"
+}
