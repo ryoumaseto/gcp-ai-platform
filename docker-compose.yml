@@ -27,6 +27,8 @@ services:
       - PORT=3001
       - HOST=0.0.0.0
       - DB_DIALECT=postgres
+      # ローカルの postgres コンテナは TLS を持たない（Cloud SQL では有効にする）
+      - DB_SSL=false
       - DB_HOST=db
       - DB_PORT=5432
       - DB_USER=${DB_USER:?DB_USER is required (.env を作成してください)}

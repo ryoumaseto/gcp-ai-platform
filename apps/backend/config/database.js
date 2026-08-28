@@ -4,11 +4,16 @@ require('dotenv').config();
 const dialect = process.env.DB_DIALECT || 'sqlite';
 const isPostgres = dialect === 'postgres';
 
-// Cloud SQL は ip_configuration.ssl_mode = "ENCRYPTED_ONLY" を設定しているため、
-// PostgreSQL 接続では TLS が必須。未設定だと接続が拒否される。
-// Private IP 経由で Google 内部 CA の証明書を検証する手段がないため
+// Cloud SQL は ip_configuration.ssl_mode = "ENCRYPTED_ONLY" のため TLS が必須。
+// 一方 docker-compose のローカル postgres は TLS を持たないので、
+// 一律に強制すると "The server does not support SSL connections" で起動できない。
+// 既定は「postgres なら TLS あり」（安全側）とし、TLS を持たないローカル DB に
+// 対してのみ DB_SSL=false で明示的に無効化する。
+const sslEnabled = isPostgres && process.env.DB_SSL !== 'false';
+
+// Private IP 経由では Google 内部 CA の証明書を検証する手段がないため
 // rejectUnauthorized は false とする（経路自体は VPC 内に閉じている）。
-const dialectOptions = isPostgres
+const dialectOptions = sslEnabled
   ? {
       ssl: {
         require: true,

@@ -63,7 +63,7 @@ app.use('/api', AdvancedSecurity.createRateLimiter());
 
 // 5️⃣ リクエストボディサイズ制限
 app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ limit: '1mb' }));
+app.use(express.urlencoded({ limit: '1mb', extended: false }));
 
 // 6️⃣ セキュリティヘッダー追加
 app.use(AdvancedSecurity.applySecurityMiddleware());

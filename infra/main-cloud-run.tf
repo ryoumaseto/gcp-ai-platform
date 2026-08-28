@@ -122,6 +122,12 @@ resource "google_cloud_run_v2_service" "backend" {
         value = "postgres"
       }
 
+      # Cloud SQL は ssl_mode = ENCRYPTED_ONLY のため TLS 必須
+      env {
+        name  = "DB_SSL"
+        value = "true"
+      }
+
       env {
         name  = "DB_HOST"
         value = google_sql_database_instance.main.private_ip_address

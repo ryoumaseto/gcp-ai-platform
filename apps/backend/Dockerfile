@@ -31,8 +31,10 @@ USER nodejs
 EXPOSE 3001
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3001/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})" || exit 1
+# レスポンスを読み捨てずに放置すると keep-alive でプロセスが終了せず、
+# 常に timeout 扱いになる。明示的に process.exit する。
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD node -e "require('http').get('http://127.0.0.1:3001/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
 
 # Start app with dumb-init
 ENTRYPOINT ["dumb-init", "--"]
