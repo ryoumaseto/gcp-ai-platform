@@ -230,11 +230,18 @@ class AdvancedSecurity {
    * 🔟 暗号化通信強制
    */
   static enforceHTTPS(req, res, next) {
-    if (process.env.NODE_ENV === 'production') {
-      if (req.header('x-forwarded-proto') !== 'https') {
-        return res.redirect(301, `https://${req.header('host')}${req.url}`);
-      }
+    // 既定では本番のみ有効。ただし docker compose のローカルスタックは
+    // NODE_ENV=production で動かしつつ平文 HTTP で提供するため、
+    // そのままだとブラウザからの全リクエストが https:// へ 301 され接続不能になる。
+    // ENFORCE_HTTPS=false で明示的に無効化できるようにする。
+    const enabled =
+      process.env.ENFORCE_HTTPS === 'true' ||
+      (process.env.ENFORCE_HTTPS !== 'false' && process.env.NODE_ENV === 'production');
+
+    if (enabled && req.header('x-forwarded-proto') !== 'https') {
+      return res.redirect(301, `https://${req.header('host')}${req.url}`);
     }
+
     next();
   }
 

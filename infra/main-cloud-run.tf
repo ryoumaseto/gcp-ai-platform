@@ -112,6 +112,12 @@ resource "google_cloud_run_v2_service" "backend" {
         value = "production"
       }
 
+      # Cloud Run は HTTPS で受け、x-forwarded-proto を付与する
+      env {
+        name  = "ENFORCE_HTTPS"
+        value = "true"
+      }
+
       env {
         name  = "PORT"
         value = "3001"

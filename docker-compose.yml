@@ -24,6 +24,9 @@ services:
       - "3001:3001"
     environment:
       - NODE_ENV=production
+      # ローカルは平文 HTTP で提供するため HTTPS 強制を切る
+      # （有効のままだとブラウザからの全リクエストが https へ 301 され接続不能）
+      - ENFORCE_HTTPS=false
       - PORT=3001
       - HOST=0.0.0.0
       - DB_DIALECT=postgres
