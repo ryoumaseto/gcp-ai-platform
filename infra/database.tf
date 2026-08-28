@@ -59,9 +59,12 @@ resource "google_sql_database_instance" "main" {
     }
 
     # Database Flags
+    # "all" にすると全 SQL 文が Cloud Logging に送られ、
+    # ユーザーのメールアドレスや入力プロンプトが平文で残る（ログ費用も嵩む）。
+    # スキーマ変更の追跡に必要な DDL のみに絞る。
     database_flags {
       name  = "log_statement"
-      value = "all"
+      value = "ddl"
     }
 
     database_flags {

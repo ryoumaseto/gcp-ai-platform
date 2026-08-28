@@ -214,7 +214,9 @@ resource "google_cloud_run_v2_service" "backend" {
     google_secret_manager_secret_version.db_password,
     google_secret_manager_secret_version.jwt_secret,
     google_artifact_registry_repository.app_gen,
-    google_project_iam_member.app_gen_secret_accessor,
+    google_secret_manager_secret_iam_member.app_gen_db_password,
+    google_secret_manager_secret_iam_member.app_gen_jwt_secret,
+    google_secret_manager_secret_iam_member.app_gen_gemini_api_key,
   ]
 }
 
@@ -255,8 +257,23 @@ resource "google_project_iam_member" "app_gen_sql_client" {
   member  = "serviceAccount:${google_service_account.app_gen.email}"
 }
 
-resource "google_project_iam_member" "app_gen_secret_accessor" {
-  project = var.gcp_project_id
-  role    = "roles/secretmanager.secretAccessor"
-  member  = "serviceAccount:${google_service_account.app_gen.email}"
+# プロジェクト全体に secretAccessor を付けると、このサービスアカウントが
+# プロジェクト内の「全ての」シークレットを読めてしまう。
+# 実際に必要な 3 つだけにスコープを絞る（最小権限）。
+resource "google_secret_manager_secret_iam_member" "app_gen_db_password" {
+  secret_id = google_secret_manager_secret.db_password.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.app_gen.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "app_gen_jwt_secret" {
+  secret_id = google_secret_manager_secret.jwt_secret.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.app_gen.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "app_gen_gemini_api_key" {
+  secret_id = google_secret_manager_secret.gemini_api_key.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.app_gen.email}"
 }

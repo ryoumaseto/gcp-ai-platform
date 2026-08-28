@@ -24,16 +24,19 @@ output "url_prediction_matches" {
 output "database_connection_name" {
   description = "Cloud SQL connection name for cloudsql-proxy"
   value       = google_sql_database_instance.main.connection_name
+  sensitive   = true
 }
 
 output "database_ip" {
   description = "Cloud SQL private IP address"
   value       = google_sql_database_instance.main.private_ip_address
+  sensitive   = true
 }
 
 output "database_host" {
   description = "Database hostname"
   value       = google_sql_database_instance.main.private_ip_address
+  sensitive   = true
 }
 
 output "database_port" {
