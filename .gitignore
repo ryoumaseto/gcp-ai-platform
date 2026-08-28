@@ -47,3 +47,17 @@ temp/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local databases (never commit real data)
+*.sqlite
+*.sqlite3
+*.db
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+terraform.tfvars
+crash.log

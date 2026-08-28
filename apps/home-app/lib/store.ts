@@ -12,8 +12,9 @@ export interface GenerationJob {
   appUrl?: string;
   error?: string;
   progress: number;
-  createdAt: Date;
-  updatedAt: Date;
+  // API からは JSON 文字列で返る
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface Store {
@@ -21,7 +22,7 @@ interface Store {
   jobs: GenerationJob[];
   isLoading: boolean;
   user: { id: string; email: string } | null;
-  jobStats: { completed: number; total: number; limit: number; canCreate: boolean };
+  jobStats: { completed: number; total: number; used: number; limit: number; canCreate: boolean };
 
   setCurrentJob: (job: GenerationJob | null) => void;
   addJob: (job: GenerationJob) => void;
@@ -36,7 +37,7 @@ export const useStore = create<Store>((set) => ({
   jobs: [],
   isLoading: false,
   user: null,
-  jobStats: { completed: 0, total: 0, limit: 3, canCreate: true },
+  jobStats: { completed: 0, total: 0, used: 0, limit: 3, canCreate: true },
 
   setCurrentJob: (job) => set({ currentJob: job }),
   addJob: (job) => set((state) => ({ jobs: [job, ...state.jobs] })),

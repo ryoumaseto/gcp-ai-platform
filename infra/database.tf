@@ -3,7 +3,7 @@ resource "google_compute_network" "vpc" {
   name                    = "app-gen-vpc"
   auto_create_subnetworks = true
 
-  depends_on = [google_project_service.compute]
+  depends_on = [google_project_service.required_apis["compute.googleapis.com"]]
 }
 
 # ===== Private Service Connection =====
@@ -14,7 +14,7 @@ resource "google_compute_global_address" "private_ip_address" {
   prefix_length = 16
   network       = google_compute_network.vpc.id
 
-  depends_on = [google_project_service.service_networking]
+  depends_on = [google_project_service.required_apis["servicenetworking.googleapis.com"]]
 }
 
 resource "google_service_networking_connection" "private_vpc_connection" {
@@ -22,7 +22,7 @@ resource "google_service_networking_connection" "private_vpc_connection" {
   service                 = "servicenetworking.googleapis.com"
   reserved_peering_ranges = [google_compute_global_address.private_ip_address.name]
 
-  depends_on = [google_project_service.service_networking]
+  depends_on = [google_project_service.required_apis["servicenetworking.googleapis.com"]]
 }
 
 # ===== Cloud SQL Instance =====
@@ -51,11 +51,11 @@ resource "google_sql_database_instance" "main" {
       }
     }
 
-    # IP Configuration
+    # IP Configuration（Public IP なし、Private IP のみ、TLS 必須）
     ip_configuration {
       ipv4_enabled    = false
       private_network = google_compute_network.vpc.id
-      require_ssl     = true
+      ssl_mode        = "ENCRYPTED_ONLY"
     }
 
     # Database Flags
@@ -71,8 +71,8 @@ resource "google_sql_database_instance" "main" {
 
     # Maintenance Window
     maintenance_window {
-      day          = 7  # Sunday
-      hour         = 3  # 3 AM UTC
+      day          = 7 # Sunday
+      hour         = 3 # 3 AM UTC
       update_track = "stable"
     }
 
@@ -103,10 +103,5 @@ resource "google_sql_user" "app_maker_user" {
   depends_on = [google_sql_database_instance.main]
 }
 
-# ===== Database Flags for Security =====
-resource "google_sql_database_instance_flag" "enforce_ssl" {
-  name             = "require_secure_transport"
-  database_version = "POSTGRES_${var.db_version}"
-  value            = "on"
-  instance_name    = google_sql_database_instance.main.name
-}
+# SSL/TLS の強制は settings.ip_configuration.ssl_mode = "ENCRYPTED_ONLY" で設定済み。
+# （google_sql_database_instance_flag というリソースタイプは provider に存在しない）

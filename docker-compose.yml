@@ -1,15 +1,15 @@
-version: '3.8'
-
 services:
   # Frontend (Next.js)
   frontend:
     build:
       context: ./apps/home-app
       dockerfile: Dockerfile
+      args:
+        # NEXT_PUBLIC_* はビルド時にクライアントバンドルへ埋め込まれる。
+        # ブラウザから見える URL を指定すること（コンテナ名 backend は解決できない）。
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
     ports:
       - "3000:3000"
-    environment:
-      - NEXT_PUBLIC_API_URL=http://backend:3001
     depends_on:
       - backend
     networks:
@@ -29,11 +29,12 @@ services:
       - DB_DIALECT=postgres
       - DB_HOST=db
       - DB_PORT=5432
-      - DB_USER=app_maker
-      - DB_PASSWORD=secure_password_123
-      - DB_NAME=app_maker
-      - JWT_SECRET_KEY=production-secret-key-change-this
-      - FRONTEND_URL=http://localhost:3000
+      - DB_USER=${DB_USER:?DB_USER is required (.env を作成してください)}
+      - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD is required (.env を作成してください)}
+      - DB_NAME=${DB_NAME:?DB_NAME is required (.env を作成してください)}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY is required (openssl rand -base64 48 で生成)}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:?GEMINI_API_KEY is required}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
     depends_on:
       db:
         condition: service_healthy
@@ -43,16 +44,17 @@ services:
   # PostgreSQL Database
   db:
     image: postgres:15-alpine
-    ports:
-      - "5432:5432"
+    # ローカル DB はコンテナネットワーク内のみに公開する（ホストへ晒さない）
+    expose:
+      - "5432"
     environment:
-      - POSTGRES_USER=app_maker
-      - POSTGRES_PASSWORD=secure_password_123
-      - POSTGRES_DB=app_maker
+      - POSTGRES_USER=${DB_USER:?DB_USER is required}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:?DB_PASSWORD is required}
+      - POSTGRES_DB=${DB_NAME:?DB_NAME is required}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app_maker"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
       interval: 10s
       timeout: 5s
       retries: 5

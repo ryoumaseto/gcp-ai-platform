@@ -10,7 +10,10 @@ class GeminiService {
   constructor() {
     this.client = axios.create({
       baseURL: GEMINI_API_BASE,
-      timeout: 30000,
+      // maxOutputTokens 8192 の生成は 30 秒では収まらず、
+      // タイムアウトでジョブが誤って failed になる。
+      // リクエスト経路外のバックグラウンド処理なので長めに取る。
+      timeout: Number(process.env.GEMINI_TIMEOUT_MS || 180000),
     });
   }
 
@@ -95,10 +98,14 @@ Check for:
 
 Provide:
 - List of vulnerabilities found
-- Severity level (Critical/High/Medium/Low)
+- Severity level for each
 - Remediation steps for each
 
 Format as a structured security report.
+
+IMPORTANT: End your response with a single machine-readable line in exactly this format
+(counts of vulnerabilities you actually found; use 0 when none):
+SEVERITY_COUNTS: critical=<n> high=<n> medium=<n> low=<n>
 `;
   }
 
@@ -181,6 +188,27 @@ Format as a structured security report.
   /**
    * 品質スコアを計算（テストカバレッジ＆セキュリティ）
    */
+  /**
+   * 監査レポート末尾の SEVERITY_COUNTS 行から件数を取り出す。
+   * 本文中の "Critical" という単語を数える方式だと、凡例
+   * ("Severity level (Critical/High/Medium/Low)") や "Highly" などにも
+   * 反応してしまい、脆弱性ゼロのレポートが最低点になる。
+   * 行が見つからない場合は null を返し、呼び出し側で判断する。
+   */
+  parseSeverityCounts(content) {
+    const match = /SEVERITY_COUNTS:\s*critical=(\d+)\s+high=(\d+)\s+medium=(\d+)\s+low=(\d+)/i.exec(
+      content || ''
+    );
+    if (!match) return null;
+
+    return {
+      critical: Number(match[1]),
+      high: Number(match[2]),
+      medium: Number(match[3]),
+      low: Number(match[4]),
+    };
+  }
+
   calculateQualityScore(testResult, securityAuditResult) {
     let score = 100;
 
@@ -188,9 +216,13 @@ Format as a structured security report.
     if (!securityAuditResult.success) {
       score -= 30;
     } else {
-      const criticalVulns = (securityAuditResult.content.match(/Critical/gi) || []).length;
-      const highVulns = (securityAuditResult.content.match(/High/gi) || []).length;
-      score -= criticalVulns * 20 + highVulns * 10;
+      const counts = this.parseSeverityCounts(securityAuditResult.content);
+      if (counts) {
+        score -= counts.critical * 20 + counts.high * 10 + counts.medium * 3;
+      } else {
+        // 想定書式で返ってこなかった場合は判定不能として控えめに減点する
+        score -= 10;
+      }
     }
 
     // テストスコア

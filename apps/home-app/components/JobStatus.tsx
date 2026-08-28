@@ -44,6 +44,9 @@ export default function JobStatus({ jobId }: JobStatusProps) {
 
   const statusLabels: Record<string, string> = {
     pending: '待機中',
+    parsing: '解析中',
+    generating: '生成中',
+    testing: 'テスト中',
     design_review: '設計レビュー',
     approved: '承認済み',
     deployed: 'デプロイ完了',
@@ -76,7 +79,7 @@ export default function JobStatus({ jobId }: JobStatusProps) {
         <CardTitle className="flex justify-between items-center">
           <span>{job.appName}</span>
           <span className="text-sm font-normal px-3 py-1 bg-blue-100 text-blue-800 rounded">
-            {statusLabels[job.status]}
+            {statusLabels[job.status] ?? job.status}
           </span>
         </CardTitle>
       </CardHeader>
@@ -134,7 +137,7 @@ export default function JobStatus({ jobId }: JobStatusProps) {
         {job.status === 'deployed' && job.appUrl && (
           <div className="space-y-3">
             <div className="p-4 bg-green-50 border border-green-200 rounded-md">
-              <p className="text-sm text-green-800">✓ アプリがデプロイされました</p>
+              <p className="text-sm text-green-800">アプリがデプロイされました</p>
             </div>
             <Button
               type="button"

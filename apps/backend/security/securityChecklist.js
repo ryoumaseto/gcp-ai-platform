@@ -32,7 +32,7 @@ class SecurityChecklist {
         {
           id: 'S1.2',
           check: 'ユーザー隔離確認',
-          verify: () => this.fileContains('controllers/jobController-v2.js', 'userId !== userId'),
+          verify: () => this.fileContains('controllers/jobController.js', 'userId !== userId'),
         },
         {
           id: 'S1.3',
@@ -63,7 +63,7 @@ class SecurityChecklist {
         {
           id: 'S2.3',
           check: 'SQL injection 対策 (ORM)',
-          verify: () => this.fileContains('models/index.js', 'Sequelize'),
+          verify: () => this.fileContains('config/database.js', 'new Sequelize'),
         },
       ],
     };
@@ -79,17 +79,17 @@ class SecurityChecklist {
         {
           id: 'S3.1',
           check: 'CORS設定確認',
-          verify: () => this.fileContains('server-db.js', 'cors'),
+          verify: () => this.fileContains('server-secure.js', 'cors'),
         },
         {
           id: 'S3.2',
-          check: 'Rate limiting (必要なら)',
-          verify: () => true, // オプション
+          check: 'Rate limiting 有効',
+          verify: () => this.fileContains('server-secure.js', 'createRateLimiter'),
         },
         {
           id: 'S3.3',
           check: 'Input validation',
-          verify: () => this.fileContains('controllers/jobController-v2.js', 'if (!description || !appName)'),
+          verify: () => this.fileContains('controllers/jobController.js', 'if (!description || !appName)'),
         },
       ],
     };
@@ -104,18 +104,18 @@ class SecurityChecklist {
       items: [
         {
           id: 'S4.1',
-          check: '本番ログに機密情報なし',
-          verify: () => !this.fileContains('server-db.js', 'PASSWORD') && !this.fileContains('server-db.js', 'SECRET'),
+          check: '機密情報をログ出力していない',
+          verify: () => this.noSecretsLogged(['server-secure.js', 'controllers/jobController.js', 'routes/auth.js']),
         },
         {
           id: 'S4.2',
           check: 'スタックトレース非表示',
-          verify: () => this.fileContains('controllers/jobController-v2.js', 'error.message'),
+          verify: () => this.fileContains('controllers/jobController.js', 'error.message'),
         },
         {
           id: 'S4.3',
           check: 'HTTP ステータス区別',
-          verify: () => this.fileContains('controllers/jobController-v2.js', '400') && this.fileContains('controllers/jobController-v2.js', '403'),
+          verify: () => this.fileContains('controllers/jobController.js', '400') && this.fileContains('controllers/jobController.js', '403'),
         },
       ],
     };
@@ -128,23 +128,71 @@ class SecurityChecklist {
     return {
       name: 'デプロイセキュリティ',
       items: [
+        // scope: 'repo' の項目はリポジトリ全体が揃っている場所（CI / ローカル）でのみ検査する。
+        // 本番コンテナには infra/ が含まれないため、起動時ゲートでは対象外にする。
         {
           id: 'S5.1',
-          check: 'Secret Manager キー管理',
-          verify: () => true, // Terraform で実装予定
+          scope: 'repo',
+          check: 'Secret Manager キー管理 (Terraform)',
+          verify: () =>
+            this.fileContains('../../infra/secrets.tf', 'google_secret_manager_secret') &&
+            this.fileContains('../../infra/main-cloud-run.tf', 'secret_key_ref'),
         },
         {
           id: 'S5.2',
-          check: 'VPC 通信隔離',
-          verify: () => true, // インフラで実装
+          scope: 'repo',
+          check: 'VPC 通信隔離 (Private IP + VPC Connector)',
+          verify: () =>
+            this.fileContains('../../infra/networking.tf', 'google_vpc_access_connector') &&
+            this.fileContains('../../infra/database.tf', 'ipv4_enabled') &&
+            this.fileContains('../../infra/database.tf', 'private_network'),
         },
         {
           id: 'S5.3',
-          check: 'SSL/TLS 有効',
-          verify: () => true, // Cloud Run で自動
+          scope: 'repo',
+          check: 'Cloud SQL の TLS 強制 (Terraform)',
+          verify: () => this.fileContains('../../infra/database.tf', 'ssl_mode'),
+        },
+        {
+          id: 'S5.4',
+          check: 'アプリ側の HTTPS 強制',
+          verify: () => this.fileContains('security/advancedSecurity.js', 'enforceHTTPS'),
+        },
+        {
+          id: 'S5.5',
+          check: 'JWT_SECRET_KEY のハードコード無し',
+          verify: () =>
+            this.fileContains('middleware/auth.js', 'JWT_SECRET_KEY environment variable is required'),
+        },
+        {
+          id: 'S5.6',
+          scope: 'repo',
+          check: 'compose に秘密のハードコード無し',
+          verify: () =>
+            !this.fileContains('../../docker-compose.yml', 'JWT_SECRET_KEY=production-secret-key-change-this') &&
+            !this.fileContains('../../docker-compose.yml', 'secure_password_123'),
         },
       ],
     };
+  }
+
+  /**
+   * console 出力に秘密の「値」が混ざっていないか検査する。
+   * 環境変数の「名前」を書くだけ（必須チェックのエラーメッセージ等）は許容し、
+   * process.env.*SECRET* / *PASSWORD* / *KEY* や passwordHash を
+   * 実際にログへ流している行だけを失格とする。
+   */
+  noSecretsLogged(filePaths) {
+    const consoleCall = /console\.(log|info|warn|error|debug)\s*\(/;
+    const secretValue = /(process\.env\.\w*(SECRET|PASSWORD|API_KEY|TOKEN)\w*)|passwordHash|\breq\.body\.password\b/;
+
+    return filePaths.every((filePath) => {
+      const fullPath = path.join(__dirname, '..', filePath);
+      if (!fs.existsSync(fullPath)) return false;
+
+      const lines = fs.readFileSync(fullPath, 'utf8').split('\n');
+      return !lines.some((line) => consoleCall.test(line) && secretValue.test(line));
+    });
   }
 
   /**
@@ -164,20 +212,27 @@ class SecurityChecklist {
   }
 
   /**
-   * すべてのチェックを実行
+   * チェックを実行する。
+   * options.scope === 'runtime' を渡すと、リポジトリ全体を必要とする項目
+   * (scope: 'repo') を除外する。本番コンテナには infra/ や docker-compose.yml が
+   * 含まれないため、起動時ゲートは runtime スコープで実行する必要がある。
    */
-  async runAllChecks() {
+  async runAllChecks(options = {}) {
+    const runtimeOnly = options.scope === 'runtime';
     const results = {};
     let passCount = 0;
     let totalCount = 0;
 
     Object.entries(this.checks).forEach(([key, category]) => {
+      const items = category.items.filter((item) => !(runtimeOnly && item.scope === 'repo'));
+      if (items.length === 0) return;
+
       results[key] = {
         category: category.name,
         items: [],
       };
 
-      category.items.forEach((item) => {
+      items.forEach((item) => {
         totalCount++;
         const passed = item.verify();
         if (passed) passCount++;

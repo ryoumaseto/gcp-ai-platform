@@ -7,7 +7,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { useStore } from '@/lib/store';
-import { generateApp } from '@/lib/api';
+import { generateApp, listJobs } from '@/lib/api';
 import toast from 'react-hot-toast';
 
 interface PromptFormProps {
@@ -25,7 +25,7 @@ export default function PromptForm({ onJobCreated }: PromptFormProps) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [canCreate, setCanCreate] = useState(true);
 
-  const { setCurrentJob, setLoading, jobStats } = useStore();
+  const { setCurrentJob, setLoading, jobStats, setJobStats } = useStore();
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -53,6 +53,12 @@ export default function PromptForm({ onJobCreated }: PromptFormProps) {
       return;
     }
 
+    // サーバー側と同じ制約を先に確認して、400 を返される前に伝える
+    if (!/^[a-zA-Z0-9_-]+$/.test(appName)) {
+      toast.error('アプリ名は英数字・ハイフン・アンダースコアのみ使用できます');
+      return;
+    }
+
     try {
       setIsLoading(true);
       setLoading(true);
@@ -68,12 +74,21 @@ export default function PromptForm({ onJobCreated }: PromptFormProps) {
       setCurrentJob(job);
       onJobCreated?.(job.id);
 
+      // 作成数が変わるので上限の判定を更新する
+      listJobs()
+        .then((data) => setJobStats(data.stats))
+        .catch(() => {
+          /* 一覧取得の失敗で生成完了の通知は妨げない */
+        });
+
       toast.success('アプリ生成を開始しました');
       setDescription('');
       setAppName('');
     } catch (error) {
-      console.error('Error:', error);
-      toast.error('エラーが発生しました。もう一度お試しください。');
+      const message =
+        (error as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+        'エラーが発生しました。もう一度お試しください。';
+      toast.error(message);
     } finally {
       setIsLoading(false);
       setLoading(false);
@@ -141,10 +156,10 @@ export default function PromptForm({ onJobCreated }: PromptFormProps) {
           onChange={(e) => setModel(e.target.value)}
           className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-950"
         >
-          <option value="gemini-2.0-flash">🚀 Gemini 2.0 Flash (最速)</option>
-          <option value="gemini-2.0-flash-thinking">🧠 Gemini 2.0 Flash Thinking (推論重視)</option>
-          <option value="gemini-1.5-pro">⭐ Gemini 1.5 Pro (高精度)</option>
-          <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash (バランス型)</option>
+          <option value="gemini-2.0-flash">Gemini 2.0 Flash（最速）</option>
+          <option value="gemini-2.0-flash-thinking">Gemini 2.0 Flash Thinking（推論重視）</option>
+          <option value="gemini-1.5-pro">Gemini 1.5 Pro（高精度）</option>
+          <option value="gemini-1.5-flash">Gemini 1.5 Flash（バランス型）</option>
         </select>
       </div>
 

@@ -111,14 +111,22 @@ design_review 状態になると：
 
 ```bash
 # 1. ジョブ作成
-curl -X POST http://localhost:3001/api/generate \
+# 1) サインアップしてトークンを取得
+TOKEN=$(curl -s -X POST http://localhost:3001/auth/signup \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com","name":"You","password":"StrongPass123!@#"}' \
+  | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).token')
+
+# 2) ジョブ作成（全エンドポイントで JWT が必須）
+curl -X POST http://localhost:3001/api/jobs \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "description": "テストアプリ",
     "appName": "TestApp",
     "language": "TypeScript",
     "dbType": "PostgreSQL",
-    "temperature": 0.7
+    "model": "gemini-2.0-flash"
   }'
 
 # 応答例：
@@ -168,7 +176,7 @@ gcp-ai-platform/
 │   │   └── .env.local            # 環境変数
 │   │
 │   └── backend/                  # バックエンド (Express.js)
-│       ├── server.js             # メインサーバー
+│       ├── server-secure.js      # メインサーバー（唯一のエントリポイント）
 │       ├── package.json
 │       └── .env                  # 環境変数
 │
@@ -176,8 +184,10 @@ gcp-ai-platform/
 │   └── app-generator-saas-improved-v2.1.md
 │
 └── infra/                        # GCP Terraform
-    ├── main.tf
-    └── modules/
+    ├── provider.tf
+    ├── main-cloud-run.tf
+    ├── database.tf
+    └── secrets.tf
 ```
 
 ## 🔧 データベース連携（本番向け）

@@ -4,10 +4,10 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Toaster } from 'react-hot-toast';
 import PromptForm from '@/components/PromptForm';
 import JobStatus from '@/components/JobStatus';
 import { useStore } from '@/lib/store';
+import { listJobs } from '@/lib/api';
 
 interface User {
   id: string;
@@ -19,7 +19,7 @@ export default function HomePage() {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const { jobStats } = useStore();
+  const { jobStats, setJobStats } = useStore();
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -28,11 +28,22 @@ export default function HomePage() {
     if (token && userStr) {
       try {
         setUser(JSON.parse(userStr));
+        // 作成上限の判定に使う統計を取得する（PromptForm の canCreate ゲートが依存）
+        listJobs()
+          .then((data) => setJobStats(data.stats))
+          .catch(() => {
+            /* 未認証・通信失敗時は既定値のままにする */
+          });
       } catch (e) {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
       }
     }
+
+    // /jobs から ?job=<id> で設計書レビューに直接遷移できるようにする
+    const jobId = new URLSearchParams(window.location.search).get('job');
+    if (jobId) setSelectedJobId(jobId);
+
     setLoading(false);
   }, []);
 
@@ -40,6 +51,7 @@ export default function HomePage() {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setUser(null);
+    setJobStats({ completed: 0, total: 0, used: 0, limit: 3, canCreate: true });
     router.push('/');
   };
 
@@ -59,7 +71,7 @@ export default function HomePage() {
               {user ? (
                 <>
                   <Link href="/jobs" className="text-sm text-gray-600 hover:text-gray-900">
-                    マイアプリ ({jobStats.completed}/{jobStats.limit})
+                    マイアプリ ({jobStats.used}/{jobStats.limit})
                   </Link>
                   <div className="relative group">
                     <button className="text-sm text-gray-600 hover:text-gray-900 font-semibold">
@@ -178,8 +190,6 @@ export default function HomePage() {
           </div>
         </footer>
       </div>
-
-      <Toaster position="top-right" />
     </>
   );
 }

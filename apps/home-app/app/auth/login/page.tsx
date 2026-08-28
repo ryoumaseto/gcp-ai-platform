@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { API_BASE_URL } from '@/lib/api';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -20,7 +21,7 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),

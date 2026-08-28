@@ -1,10 +1,16 @@
+# 秘密情報 — イメージに焼き込まない
+.env
+.env.*
+
+# 依存関係とビルド成果物（イメージ内で再構築する）
 node_modules
-npm-debug.log
 .next
+
+# その他
 .git
 .gitignore
+npm-debug.log
+*.log
+Dockerfile
+.dockerignore
 README.md
-.env.local
-.env*.local
-.DS_Store
-*.pem

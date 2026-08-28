@@ -8,10 +8,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { API_BASE_URL } from '@/lib/api';
 
 export default function SignupPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -41,6 +43,10 @@ export default function SignupPage() {
       newErrors.email = 'メールアドレスは必須です';
     }
 
+    if (!name.trim()) {
+      newErrors.name = 'お名前は必須です';
+    }
+
     const passwordError = validatePassword(password);
     if (passwordError) {
       newErrors.password = passwordError;
@@ -59,10 +65,10 @@ export default function SignupPage() {
     setLoading(true);
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/signup`, {
+      const response = await fetch(`${API_BASE_URL}/auth/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, name, password }),
       });
 
       if (!response.ok) {
@@ -113,6 +119,19 @@ export default function SignupPage() {
                 required
               />
               {errors.email && <p className="text-sm text-red-600">{errors.email}</p>}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="name">お名前</Label>
+              <Input
+                id="name"
+                type="text"
+                placeholder="山田 太郎"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+              />
+              {errors.name && <p className="text-sm text-red-600">{errors.name}</p>}
             </div>
 
             <div className="space-y-2">

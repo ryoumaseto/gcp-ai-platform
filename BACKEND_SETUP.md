@@ -158,14 +158,22 @@ CREATE TABLE app_generation_jobs (
 
 ```bash
 # サーバー起動後
-curl -X POST http://localhost:3001/api/generate \
+# 1) サインアップしてトークンを取得
+TOKEN=$(curl -s -X POST http://localhost:3001/auth/signup \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com","name":"You","password":"StrongPass123!@#"}' \
+  | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).token')
+
+# 2) ジョブ作成（全エンドポイントで JWT が必須）
+curl -X POST http://localhost:3001/api/jobs \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "description": "テストアプリ",
     "appName": "TestApp",
     "language": "TypeScript",
     "dbType": "PostgreSQL",
-    "temperature": 0.7
+    "model": "gemini-2.0-flash"
   }'
 ```
 

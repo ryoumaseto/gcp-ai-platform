@@ -22,7 +22,8 @@ describe('GeminiService', () => {
       expect(prompt).toContain('Test description');
       expect(prompt).toContain('TypeScript');
       expect(prompt).toContain('PostgreSQL');
-      expect(prompt).toContain('Production-ready');
+      // プロンプト本文は "production-ready" (小文字) で埋め込まれる
+      expect(prompt).toMatch(/production-ready/i);
     });
 
     test('buildTestGenerationPrompt should include code and language', () => {
@@ -53,11 +54,29 @@ describe('GeminiService', () => {
   describe('Quality Score Calculation', () => {
     test('should return 100 for perfect results', () => {
       const testResult = { success: true };
-      const securityResult = { success: true, content: 'No vulnerabilities found' };
+      const securityResult = {
+        success: true,
+        content: 'No vulnerabilities found\nSEVERITY_COUNTS: critical=0 high=0 medium=0 low=0',
+      };
 
       const score = geminiService.calculateQualityScore(testResult, securityResult);
 
       expect(score).toBe(100);
+    });
+
+    test('should not penalize a clean report that merely mentions severity words', () => {
+      // 監査プロンプトは "Severity level (Critical/High/Medium/Low)" という凡例を含む。
+      // 本文の単語を数える実装では、脆弱性ゼロでも最低点になってしまっていた。
+      const testResult = { success: true };
+      const securityResult = {
+        success: true,
+        content:
+          'Severity level (Critical/High/Medium/Low)\n' +
+          'Highly recommended: keep dependencies updated.\n' +
+          'SEVERITY_COUNTS: critical=0 high=0 medium=0 low=0',
+      };
+
+      expect(geminiService.calculateQualityScore(testResult, securityResult)).toBe(100);
     });
 
     test('should penalize failed security audit', () => {
@@ -73,17 +92,30 @@ describe('GeminiService', () => {
       const testResult = { success: true };
       const securityResult = {
         success: true,
-        content: 'Critical: SQL Injection found. Critical: XSS found.',
+        content:
+          'Critical: SQL Injection found. Critical: XSS found.\n' +
+          'SEVERITY_COUNTS: critical=2 high=0 medium=0 low=0',
       };
 
       const score = geminiService.calculateQualityScore(testResult, securityResult);
 
-      expect(score).toBeLessThan(70); // Multiple critical vulns
+      expect(score).toBeLessThan(70); // 100 - 2*20 = 60
+    });
+
+    test('should apply a small penalty when the report is not machine-readable', () => {
+      const testResult = { success: true };
+      const securityResult = { success: true, content: 'Some free-form prose without counts.' };
+
+      // 判定不能なので満点にはしないが、単語数え時代のような極端な減点もしない
+      expect(geminiService.calculateQualityScore(testResult, securityResult)).toBe(90);
     });
 
     test('should penalize failed tests', () => {
       const testResult = { success: false };
-      const securityResult = { success: true, content: 'Clean' };
+      const securityResult = {
+        success: true,
+        content: 'Clean\nSEVERITY_COUNTS: critical=0 high=0 medium=0 low=0',
+      };
 
       const score = geminiService.calculateQualityScore(testResult, securityResult);
 

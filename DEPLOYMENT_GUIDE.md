@@ -150,18 +150,43 @@ gcloud auth configure-docker ${GCP_REGION}-docker.pkg.dev
 
 ### Step 3-3: Frontend & Backend ビルド
 
+> **重要**: `NEXT_PUBLIC_API_URL` は Next.js のビルド時にクライアントバンドルへ
+> 埋め込まれます。Cloud Run の環境変数で後から与えてもブラウザ側には反映されないため、
+> **ビルド前にバックエンド URL を確定させる必要があります。**
+> Cloud Run のデフォルト URL は project number から決まるので事前に計算できます。
+
 ```bash
 cd /home/ryohma/gcp-ai-platform
 
-# Frontend
-docker build \
-  -t ${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/app-gen/frontend:latest \
-  ./apps/home-app
+# バックエンド URL を事前に確定させる
+PROJECT_NUMBER=$(gcloud projects describe $GCP_PROJECT_ID --format='value(projectNumber)')
+BACKEND_URL="https://app-gen-backend-${PROJECT_NUMBER}.${GCP_REGION}.run.app"
+echo "Backend URL: $BACKEND_URL"
 
 # Backend
 docker build \
   -t ${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/app-gen/backend:latest \
   ./apps/backend
+
+# Frontend（バックエンド URL をビルド引数で埋め込む）
+docker build \
+  --build-arg NEXT_PUBLIC_API_URL=${BACKEND_URL} \
+  -t ${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/app-gen/frontend:latest \
+  ./apps/home-app
+```
+
+### Step 3-3b: Gemini API キーを Secret Manager へ登録
+
+Terraform はシークレットの「箱」だけを作ります。値を tfstate に平文で残さないため、
+中身は gcloud で投入します。
+
+```bash
+# 先にシークレット本体だけ作成
+cd infra && terraform apply -target=google_secret_manager_secret.gemini_api_key && cd ..
+
+# 値を登録（https://aistudio.google.com/apikey で取得）
+printf '%s' "$GEMINI_API_KEY" | \
+  gcloud secrets versions add app-gen-gemini-api-key --data-file=-
 ```
 
 ### Step 3-4: Artifact Registry にプッシュ
@@ -193,7 +218,15 @@ terraform plan -out=tfplan
 
 # Apply (リソース作成)
 terraform apply tfplan
+
+# Cloud Run の URL が事前計算どおりか確認する
+# false が返った場合は、出力された実 URL を terraform.tfvars の
+# frontend_url / backend_url に設定し、フロントを再ビルドして再 apply する
+terraform output url_prediction_matches
 ```
+
+> 上記の手順は `./deploy.sh` が全自動で実行します。手動で追う必要がなければ
+> `GCP_PROJECT_ID` と `GEMINI_API_KEY` を export して `./deploy.sh` を実行してください。
 
 ### Step 4-2: 出力確認
 

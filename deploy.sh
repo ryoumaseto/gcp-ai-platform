@@ -1,95 +1,172 @@
 #!/bin/bash
 
-set -e
+set -euo pipefail
 
 echo "╔════════════════════════════════════════════════════════╗"
 echo "║          App Gen - GCP デプロイスクリプト              ║"
 echo "╚════════════════════════════════════════════════════════╝"
 
-# Color output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Configuration
-PROJECT_ID="${GCP_PROJECT_ID}"
+PROJECT_ID="${GCP_PROJECT_ID:-}"
 REGION="${GCP_REGION:-us-central1}"
 REPO_NAME="app-gen"
+REGISTRY="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}"
 
-# Validate prerequisites
-echo -e "\n${YELLOW}📋 Checking prerequisites...${NC}"
+# ===== 前提条件の確認 =====
+echo -e "\n${YELLOW}Step 0: 前提条件を確認しています...${NC}"
 
 if [ -z "$PROJECT_ID" ]; then
-  echo -e "${RED}❌ GCP_PROJECT_ID environment variable not set${NC}"
+  echo -e "${RED}GCP_PROJECT_ID が設定されていません${NC}"
+  echo "  export GCP_PROJECT_ID=your-project-id"
   exit 1
 fi
 
-if ! command -v gcloud &> /dev/null; then
-  echo -e "${RED}❌ gcloud CLI not found${NC}"
+for cmd in gcloud docker terraform; do
+  if ! command -v "$cmd" &> /dev/null; then
+    echo -e "${RED}$cmd が見つかりません${NC}"
+    exit 1
+  fi
+done
+
+if [ -z "${GEMINI_API_KEY:-}" ]; then
+  echo -e "${RED}GEMINI_API_KEY が設定されていません${NC}"
+  echo "  export GEMINI_API_KEY=your-key   # https://aistudio.google.com/apikey"
   exit 1
 fi
 
-if ! command -v docker &> /dev/null; then
-  echo -e "${RED}❌ Docker not found${NC}"
-  exit 1
+echo -e "${GREEN}前提条件 OK${NC}"
+
+cd "$(dirname "$0")"
+
+export TF_VAR_gcp_project_id="$PROJECT_ID"
+export TF_VAR_gcp_region="$REGION"
+
+# ===== Step 1: Terraform ステートバケットと初期化 =====
+# backend "gcs" は bucket の指定が必須。未指定だと init が失敗する。
+STATE_BUCKET="${TF_STATE_BUCKET:-${PROJECT_ID}-terraform-state}"
+
+echo -e "\n${YELLOW}Step 1: Terraform ステートバケットを準備しています...${NC}"
+
+if ! gcloud storage buckets describe "gs://${STATE_BUCKET}" --project="$PROJECT_ID" &> /dev/null; then
+  echo "  gs://${STATE_BUCKET} を作成します"
+  gcloud storage buckets create "gs://${STATE_BUCKET}" \
+    --project="$PROJECT_ID" \
+    --location="$REGION" \
+    --uniform-bucket-level-access
+  # ステートの誤削除・破損に備えてバージョニングを有効化する
+  gcloud storage buckets update "gs://${STATE_BUCKET}" --versioning
+else
+  echo "  gs://${STATE_BUCKET} は既に存在します"
 fi
-
-if ! command -v terraform &> /dev/null; then
-  echo -e "${RED}❌ Terraform not found${NC}"
-  exit 1
-fi
-
-echo -e "${GREEN}✓ All prerequisites met${NC}"
-
-# Step 1: Build Docker images
-echo -e "\n${YELLOW}🔨 Step 1: Building Docker images...${NC}"
-
-docker build -t ${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/frontend:latest ./apps/home-app
-docker build -t ${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/backend:latest ./apps/backend
-
-echo -e "${GREEN}✓ Docker images built${NC}"
-
-# Step 2: Push to Artifact Registry
-echo -e "\n${YELLOW}🚀 Step 2: Pushing images to Artifact Registry...${NC}"
-
-gcloud auth configure-docker ${REGION}-docker.pkg.dev
-
-docker push ${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/frontend:latest
-docker push ${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/backend:latest
-
-echo -e "${GREEN}✓ Images pushed${NC}"
-
-# Step 3: Run Terraform
-echo -e "\n${YELLOW}📦 Step 3: Running Terraform...${NC}"
 
 cd infra
+terraform init -input=false -reconfigure \
+  -backend-config="bucket=${STATE_BUCKET}" \
+  -backend-config="prefix=app-gen"
+cd ..
 
-# Set variables
-export TF_VAR_gcp_project_id=$PROJECT_ID
-export TF_VAR_gcp_region=$REGION
+echo -e "${GREEN}Terraform 初期化完了${NC}"
 
-terraform init
-terraform plan -out=tfplan
-terraform apply tfplan
+# ===== Step 2: API と Artifact Registry を先に作る =====
+# Cloud Run はイメージが無いと作成できず、イメージは Artifact Registry が無いと
+# push できないため、レジストリと API だけを先行して apply する。
+echo -e "\n${YELLOW}Step 2: API 有効化と Artifact Registry を作成しています...${NC}"
 
-echo -e "${GREEN}✓ Infrastructure deployed${NC}"
+cd infra
+terraform apply -input=false -auto-approve \
+  -target=google_project_service.required_apis \
+  -target=google_artifact_registry_repository.app_gen
+cd ..
 
-# Step 4: Get outputs
-echo -e "\n${YELLOW}📊 Step 4: Retrieving deployment information...${NC}"
+echo -e "${GREEN}Artifact Registry 準備完了${NC}"
 
-FRONTEND_URL=$(terraform output -raw frontend_url 2>/dev/null || echo "Pending...")
-BACKEND_URL=$(terraform output -raw backend_url 2>/dev/null || echo "Pending...")
+# ===== Step 3: Gemini API キーを Secret Manager へ投入 =====
+# 値を tfstate に平文で残さないため、Terraform ではなく gcloud で投入する。
+echo -e "\n${YELLOW}Step 3: Gemini API キーを Secret Manager に登録しています...${NC}"
 
-echo -e "\n${GREEN}✓ Deployment complete!${NC}"
+cd infra
+terraform apply -input=false -auto-approve \
+  -target=google_secret_manager_secret.gemini_api_key
+cd ..
 
-echo -e "\n${YELLOW}📍 Access your application:${NC}"
-echo -e "  Frontend: ${FRONTEND_URL}"
-echo -e "  Backend:  ${BACKEND_URL}"
+printf '%s' "$GEMINI_API_KEY" | gcloud secrets versions add app-gen-gemini-api-key \
+  --project="$PROJECT_ID" --data-file=- > /dev/null
 
-echo -e "\n${YELLOW}🔒 Security:${NC}"
-echo -e "  ✓ Secrets stored in Secret Manager"
-echo -e "  ✓ Security checklist: 100 points"
-echo -e "  ✓ HTTPS enabled"
+echo -e "${GREEN}シークレット登録完了${NC}"
 
-echo -e "\n${GREEN}✅ Ready for production!${NC}"
+# ===== Step 4: バックエンド URL を確定してイメージをビルド =====
+# NEXT_PUBLIC_* はビルド時にクライアントバンドルへ埋め込まれるため、
+# フロントのビルド前にバックエンド URL が確定している必要がある。
+# Cloud Run のデフォルト URL は project number から決まるので事前に計算できる。
+PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
+BACKEND_URL="https://app-gen-backend-${PROJECT_NUMBER}.${REGION}.run.app"
+
+echo -e "\n${YELLOW}Step 4: Docker イメージをビルドしています...${NC}"
+echo "  Backend URL (フロントに埋め込む): ${BACKEND_URL}"
+
+docker build -t "${REGISTRY}/backend:latest" ./apps/backend
+docker build -t "${REGISTRY}/frontend:latest" \
+  --build-arg "NEXT_PUBLIC_API_URL=${BACKEND_URL}" \
+  ./apps/home-app
+
+echo -e "${GREEN}ビルド完了${NC}"
+
+# ===== Step 5: イメージを push =====
+echo -e "\n${YELLOW}Step 5: イメージを Artifact Registry に push しています...${NC}"
+
+gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+docker push "${REGISTRY}/backend:latest"
+docker push "${REGISTRY}/frontend:latest"
+
+echo -e "${GREEN}push 完了${NC}"
+
+# ===== Step 6: インフラ全体を apply =====
+echo -e "\n${YELLOW}Step 6: Terraform で全体をデプロイしています...${NC}"
+
+cd infra
+terraform apply -input=false -auto-approve
+cd ..
+
+echo -e "${GREEN}インフラのデプロイ完了${NC}"
+
+# ===== Step 7: 結果の確認 =====
+echo -e "\n${YELLOW}Step 7: デプロイ結果を確認しています...${NC}"
+
+cd infra
+ACTUAL_FRONTEND_URL=$(terraform output -raw frontend_url)
+ACTUAL_BACKEND_URL=$(terraform output -raw backend_url)
+URL_MATCH=$(terraform output -raw url_prediction_matches)
+cd ..
+
+echo -e "\n${YELLOW}アクセス URL:${NC}"
+echo "  Frontend: ${ACTUAL_FRONTEND_URL}"
+echo "  Backend:  ${ACTUAL_BACKEND_URL}"
+
+if [ "$URL_MATCH" != "true" ]; then
+  echo -e "\n${RED}警告: 予測した Cloud Run URL が実際の URL と一致しませんでした。${NC}"
+  echo "  infra/terraform.tfvars に以下を追記して、このスクリプトを再実行してください:"
+  echo "    frontend_url = \"${ACTUAL_FRONTEND_URL}\""
+  echo "    backend_url  = \"${ACTUAL_BACKEND_URL}\""
+  exit 1
+fi
+
+# ===== Step 8: 疎通確認 =====
+echo -e "\n${YELLOW}Step 8: ヘルスチェックを実行しています...${NC}"
+
+HEALTH_CODE=$(curl -s -o /dev/null -w '%{http_code}' "${ACTUAL_BACKEND_URL}/health" || echo "000")
+
+if [ "$HEALTH_CODE" = "200" ]; then
+  echo -e "${GREEN}バックエンド正常 (/health -> 200)${NC}"
+else
+  echo -e "${RED}バックエンドのヘルスチェックが失敗しました (HTTP ${HEALTH_CODE})${NC}"
+  echo "  ログを確認してください:"
+  echo "    gcloud run services logs read app-gen-backend --region ${REGION} --limit 50"
+  exit 1
+fi
+
+echo -e "\n${GREEN}デプロイ完了${NC}"
+echo -e "  ${ACTUAL_FRONTEND_URL} をブラウザで開いてください。"

@@ -24,7 +24,7 @@ class AdvancedSecurity {
         .update(process.env.API_KEY || 'default-key')
         .digest('hex');
 
-      if (!crypto.timingSafeEqual(keyHash, validKeyHash)) {
+      if (!AdvancedSecurity.safeCompare(keyHash, validKeyHash)) {
         // タイミング攻撃対策：常に同じ時間応答
         return res.status(401).json({ error: 'Invalid API key' });
       }
@@ -60,10 +60,23 @@ class AdvancedSecurity {
   }
 
   static validateCSRFToken(token, sessionToken) {
-    return crypto.timingSafeEqual(
-      Buffer.from(token),
-      Buffer.from(sessionToken)
-    );
+    return AdvancedSecurity.safeCompare(token, sessionToken);
+  }
+
+  /**
+   * 定数時間比較。crypto.timingSafeEqual は
+   *  - 文字列を渡すと TypeError
+   *  - 長さが違うと RangeError
+   * を投げるため、そのまま使うと「不一致」ではなく 500 になる。
+   * 長さを含めて安全に比較するためハッシュ化してから突き合わせる。
+   */
+  static safeCompare(a, b) {
+    if (typeof a !== 'string' || typeof b !== 'string') return false;
+
+    const ha = crypto.createHash('sha256').update(a).digest();
+    const hb = crypto.createHash('sha256').update(b).digest();
+
+    return crypto.timingSafeEqual(ha, hb);
   }
 
   /**
@@ -164,30 +177,53 @@ class AdvancedSecurity {
    * 9️⃣ ログ監査（本番ログに機密情報なし）
    */
   static sanitizeLog(data) {
-    const sanitized = JSON.parse(JSON.stringify(data));
-
-    // 機密情報を削除
+    // key.toLowerCase() と camelCase の一覧を比較していたため
+    // passwordHash / apiKey / creditCard が一致せず素通りしていた。
+    // 判定側も小文字に正規化して比較する。
     const sensitiveFields = [
       'password',
-      'passwordHash',
+      'passwordhash',
       'token',
-      'apiKey',
+      'accesstoken',
+      'refreshtoken',
+      'apikey',
       'secret',
-      'creditCard',
+      'jwtsecretkey',
+      'authorization',
+      'creditcard',
     ];
 
-    const recursiveSanitize = (obj) => {
-      Object.keys(obj).forEach((key) => {
-        if (sensitiveFields.includes(key.toLowerCase())) {
-          obj[key] = '***REDACTED***';
-        } else if (typeof obj[key] === 'object' && obj[key] !== null) {
-          recursiveSanitize(obj[key]);
-        }
+    // 循環参照があると JSON.stringify が例外を投げ、
+    // エラーハンドラの中で二次障害になるため WeakSet で追跡する。
+    const seen = new WeakSet();
+
+    const walk = (value) => {
+      // Error は message/stack が非列挙のため、明示的に取り出さないと {} になる
+      if (value instanceof Error) {
+        return {
+          name: value.name,
+          message: value.message,
+          stack: value.stack,
+        };
+      }
+
+      if (value === null || typeof value !== 'object') return value;
+
+      if (seen.has(value)) return '[Circular]';
+      seen.add(value);
+
+      if (Array.isArray(value)) return value.map(walk);
+
+      const out = {};
+      Object.keys(value).forEach((key) => {
+        out[key] = sensitiveFields.includes(key.toLowerCase())
+          ? '***REDACTED***'
+          : walk(value[key]);
       });
+      return out;
     };
 
-    recursiveSanitize(sanitized);
-    return sanitized;
+    return walk(data);
   }
 
   /**
@@ -214,10 +250,7 @@ class AdvancedSecurity {
 
   static verifyRequestSignature(payload, signature, secret) {
     const expectedSignature = this.createRequestSignature(payload, secret);
-    return crypto.timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(expectedSignature)
-    );
+    return AdvancedSecurity.safeCompare(signature, expectedSignature);
   }
 
   /**

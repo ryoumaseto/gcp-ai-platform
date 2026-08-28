@@ -8,5 +8,5 @@ resource "google_vpc_access_connector" "connector" {
   min_throughput = 200
   max_throughput = 300
 
-  depends_on = [google_project_service.vpc_connector]
+  depends_on = [google_project_service.required_apis["vpcaccess.googleapis.com"]]
 }

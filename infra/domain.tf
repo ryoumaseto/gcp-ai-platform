@@ -1,7 +1,6 @@
 # ===== カスタムドメイン設定 (オプション) =====
 # Cloud Run に カスタムドメインをマッピング
 
-# 変数で定義
 variable "frontend_domain" {
   description = "Frontend カスタムドメイン (オプション)"
   type        = string
@@ -20,11 +19,13 @@ resource "google_cloud_run_domain_mapping" "frontend" {
   location = var.gcp_region
   name     = var.frontend_domain
 
-  spec {
-    route_name = google_cloud_run_service.frontend.name
+  metadata {
+    namespace = var.gcp_project_id
   }
 
-  depends_on = [google_cloud_run_service.frontend]
+  spec {
+    route_name = google_cloud_run_v2_service.frontend.name
+  }
 }
 
 # ===== Cloud Run Domain Mapping (Backend) =====
@@ -33,11 +34,13 @@ resource "google_cloud_run_domain_mapping" "backend" {
   location = var.gcp_region
   name     = var.backend_domain
 
-  spec {
-    route_name = google_cloud_run_service.backend.name
+  metadata {
+    namespace = var.gcp_project_id
   }
 
-  depends_on = [google_cloud_run_service.backend]
+  spec {
+    route_name = google_cloud_run_v2_service.backend.name
+  }
 }
 
 # ===== DNS Record 情報出力 =====
@@ -47,7 +50,7 @@ output "frontend_dns_records" {
     domain       = var.frontend_domain
     cname_target = google_cloud_run_domain_mapping.frontend[0].status[0].resource_records[0].rrdata
     type         = "CNAME"
-  } : "Custom domain not configured"
+  } : null
 }
 
 output "backend_dns_records" {
@@ -56,16 +59,16 @@ output "backend_dns_records" {
     domain       = var.backend_domain
     cname_target = google_cloud_run_domain_mapping.backend[0].status[0].resource_records[0].rrdata
     type         = "CNAME"
-  } : "Custom domain not configured"
+  } : null
 }
 
-# ===== 現在のデフォルト URL =====
-output "default_frontend_url" {
-  description = "デフォルト Frontend URL (カスタムドメインなし時)"
-  value       = var.frontend_domain == "" ? "https://${google_cloud_run_service.frontend.status[0].url}" : "https://${var.frontend_domain}"
+# ===== 実際にアクセスする URL =====
+output "public_frontend_url" {
+  description = "利用者がアクセスする Frontend URL"
+  value       = var.frontend_domain == "" ? google_cloud_run_v2_service.frontend.uri : "https://${var.frontend_domain}"
 }
 
-output "default_backend_url" {
-  description = "デフォルト Backend URL (カスタムドメインなし時)"
-  value       = var.backend_domain == "" ? "https://${google_cloud_run_service.backend.status[0].url}" : "https://${var.backend_domain}"
+output "public_backend_url" {
+  description = "利用者がアクセスする Backend URL"
+  value       = var.backend_domain == "" ? google_cloud_run_v2_service.backend.uri : "https://${var.backend_domain}"
 }

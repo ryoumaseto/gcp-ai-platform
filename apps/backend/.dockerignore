@@ -1,0 +1,23 @@
+# 秘密情報 — イメージに焼き込まない
+.env
+.env.*
+
+# ローカル DB
+*.sqlite
+*.sqlite3
+*.db
+
+# 依存関係（イメージ内で npm ci して再構築する）
+node_modules
+
+# テスト・カバレッジ
+coverage
+tests
+
+# その他
+.git
+.gitignore
+npm-debug.log
+*.log
+Dockerfile
+.dockerignore

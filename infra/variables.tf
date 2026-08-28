@@ -69,9 +69,23 @@ variable "backend_memory" {
 }
 
 variable "enable_min_instance_count" {
-  description = "Enable minimum instance count for Cloud Run"
+  description = "Enable minimum instance count for Cloud Run (avoids cold starts, increases cost)"
   type        = bool
   default     = false
+}
+
+# Cloud Run のデフォルト URL は project number から決まるため通常は設定不要。
+# 初回 apply 後に output と食い違う場合のみ、実際の URL をここに設定して再 apply する。
+variable "frontend_url" {
+  description = "Override for the frontend URL (used for backend CORS). Empty = derive from project number."
+  type        = string
+  default     = ""
+}
+
+variable "backend_url" {
+  description = "Override for the backend URL (used for frontend API calls). Empty = derive from project number."
+  type        = string
+  default     = ""
 }
 
 # ===== Security Configuration =====

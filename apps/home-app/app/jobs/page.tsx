@@ -4,74 +4,85 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  Database,
+  ExternalLink,
+  FileSearch,
+  Loader2,
+  Sparkles,
+  Terminal,
+  Trash2,
+  XCircle,
+} from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { listJobs, deleteJob } from '@/lib/api';
+import { useStore, GenerationJob } from '@/lib/store';
 
-interface Job {
-  id: string;
-  appName: string;
-  status: string;
-  progress: number;
-  appUrl?: string;
-  error?: string;
-  createdAt: string;
+const TERMINAL_STATUSES = ['deployed', 'failed'];
+
+const STATUS_META: Record<
+  string,
+  { label: string; className: string; Icon: typeof Clock }
+> = {
+  pending: { label: '待機中', className: 'bg-gray-100 text-gray-700', Icon: Clock },
+  parsing: { label: '解析中', className: 'bg-blue-100 text-blue-800', Icon: Loader2 },
+  generating: { label: '生成中', className: 'bg-blue-100 text-blue-800', Icon: Loader2 },
+  testing: { label: 'テスト中', className: 'bg-blue-100 text-blue-800', Icon: Loader2 },
+  design_review: { label: '設計書レビュー待ち', className: 'bg-amber-100 text-amber-800', Icon: FileSearch },
+  approved: { label: '承認済み', className: 'bg-indigo-100 text-indigo-800', Icon: CheckCircle2 },
+  deployed: { label: 'デプロイ完了', className: 'bg-green-100 text-green-800', Icon: CheckCircle2 },
+  failed: { label: '失敗', className: 'bg-red-100 text-red-800', Icon: XCircle },
+};
+
+function statusMeta(status: string) {
+  return STATUS_META[status] ?? { label: status, className: 'bg-gray-100 text-gray-700', Icon: Clock };
 }
 
 export default function JobsPage() {
   const router = useRouter();
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [stats, setStats] = useState({ total: 0, completed: 0, limit: 3, canCreate: false });
+  const [jobs, setJobs] = useState<GenerationJob[]>([]);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token) {
-      router.push('/auth/login');
-      return;
-    }
-
-    fetchJobs();
-  }, []);
+  const { jobStats: stats, setJobStats } = useStore();
 
   const fetchJobs = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/jobs`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (response.status === 401) {
-        localStorage.removeItem('token');
-        router.push('/auth/login');
-        return;
-      }
-
-      if (!response.ok) throw new Error('Failed to fetch jobs');
-
-      const data = await response.json();
-      setJobs(data.jobs || data);
-      if (data.stats) {
-        setStats(data.stats);
-      }
+      const data = await listJobs();
+      setJobs(data.jobs);
+      setJobStats(data.stats);
     } catch (error) {
-      toast.error('ジョブの取得に失敗しました');
+      // 401 は api クライアントの interceptor がログイン画面へ誘導する
+      toast.error('アプリ一覧の取得に失敗しました');
     } finally {
       setLoading(false);
     }
   };
 
+  useEffect(() => {
+    if (!localStorage.getItem('token')) {
+      router.push('/auth/login');
+      return;
+    }
+    fetchJobs();
+  }, []);
+
+  // 生成中のジョブがある間だけポーリングする
+  useEffect(() => {
+    const hasActiveJob = jobs.some((job) => !TERMINAL_STATUSES.includes(job.status));
+    if (!hasActiveJob) return;
+
+    const interval = setInterval(fetchJobs, 5000);
+    return () => clearInterval(interval);
+  }, [jobs]);
+
   const handleDelete = async (jobId: string) => {
     if (!confirm('このアプリを削除してもよろしいですか？')) return;
 
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/jobs/${jobId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (!response.ok) throw new Error('Delete failed');
-
+      await deleteJob(jobId);
       toast.success('アプリを削除しました');
       fetchJobs();
     } catch (error) {
@@ -79,34 +90,13 @@ export default function JobsPage() {
     }
   };
 
-  const getStatusLabel = (status: string) => {
-    const labels: Record<string, string> = {
-      pending: '待機中',
-      parsing: 'パース中',
-      design_review: '設計書レビュー',
-      approved: '承認済み',
-      generating: '生成中',
-      testing: 'テスト中',
-      deployed: '✅ デプロイ完了',
-      failed: '❌ 失敗',
-    };
-    return labels[status] || status;
-  };
-
-  const getStatusColor = (status: string) => {
-    const colors: Record<string, string> = {
-      deployed: 'bg-green-100 text-green-800',
-      failed: 'bg-red-100 text-red-800',
-      generating: 'bg-blue-100 text-blue-800',
-      design_review: 'bg-yellow-100 text-yellow-800',
-    };
-    return colors[status] || 'bg-gray-100 text-gray-800';
-  };
-
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
-        <p className="text-gray-600">読み込み中...</p>
+        <p className="flex items-center gap-2 text-gray-600">
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          読み込み中...
+        </p>
       </div>
     );
   }
@@ -123,7 +113,9 @@ export default function JobsPage() {
             <h1 className="text-2xl font-bold text-gray-900">AppGen</h1>
           </Link>
           <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-600">生成済み: {stats.completed}/{stats.limit}</span>
+            <span className="text-sm text-gray-600">
+              使用中: {stats.used}/{stats.limit}
+            </span>
             <Link href="/" className="text-sm text-blue-600 hover:underline">
               ホーム
             </Link>
@@ -131,7 +123,6 @@ export default function JobsPage() {
         </div>
       </nav>
 
-      {/* Main Content */}
       <div className="max-w-6xl mx-auto px-6 py-12">
         <div className="mb-8">
           <h2 className="text-3xl font-bold text-gray-900 mb-2">マイアプリ</h2>
@@ -140,22 +131,39 @@ export default function JobsPage() {
           </p>
         </div>
 
-        {/* Stats Card */}
+        {/* Stats */}
         <Card className="mb-8">
           <CardContent className="pt-6">
             <div className="grid grid-cols-3 gap-4">
               <div>
-                <p className="text-sm text-gray-600">作成済みアプリ</p>
-                <p className="text-3xl font-bold text-gray-900">{stats.completed}</p>
+                <p className="text-sm text-gray-600">使用中の枠</p>
+                <p className="text-3xl font-bold text-gray-900">{stats.used}</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  うちデプロイ完了 {stats.completed}
+                </p>
               </div>
               <div>
-                <p className="text-sm text-gray-600">制限</p>
+                <p className="text-sm text-gray-600">上限</p>
                 <p className="text-3xl font-bold text-gray-900">{stats.limit}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-600">作成可能</p>
-                <p className={`text-3xl font-bold ${stats.canCreate ? 'text-green-600' : 'text-red-600'}`}>
-                  {stats.canCreate ? '○' : '✕'}
+                <p className="text-sm text-gray-600">新規作成</p>
+                <p
+                  className={`flex items-center gap-2 text-lg font-semibold ${
+                    stats.canCreate ? 'text-green-600' : 'text-red-600'
+                  }`}
+                >
+                  {stats.canCreate ? (
+                    <>
+                      <CheckCircle2 className="h-5 w-5" aria-hidden />
+                      可能
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="h-5 w-5" aria-hidden />
+                      上限到達
+                    </>
+                  )}
                 </p>
               </div>
             </div>
@@ -163,18 +171,21 @@ export default function JobsPage() {
         </Card>
 
         {!stats.canCreate && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-8">
-            <p className="text-red-800 font-semibold mb-2">⚠️ 作成上限に達しています</p>
-            <p className="text-sm text-red-700">
-              新しいアプリを作成するには、古いアプリを削除してください。
-            </p>
+          <div className="flex gap-3 bg-red-50 border border-red-200 rounded-lg p-4 mb-8">
+            <AlertCircle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" aria-hidden />
+            <div>
+              <p className="text-red-800 font-semibold mb-1">作成上限に達しています</p>
+              <p className="text-sm text-red-700">
+                新しいアプリを作成するには、古いアプリを削除してください。
+              </p>
+            </div>
           </div>
         )}
 
         {/* Jobs List */}
         {jobs.length === 0 ? (
           <Card>
-            <CardContent className="pt-12 text-center">
+            <CardContent className="pt-12 pb-12 text-center">
               <p className="text-gray-600 mb-6">まだアプリを作成していません。</p>
               <Link href="/">
                 <Button>アプリを作成する</Button>
@@ -183,59 +194,125 @@ export default function JobsPage() {
           </Card>
         ) : (
           <div className="space-y-4">
-            {jobs.map((job) => (
-              <Card key={job.id} className="hover:shadow-md transition-shadow">
-                <CardContent className="pt-6">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex-1">
-                      <h3 className="text-lg font-bold text-gray-900 mb-2">{job.appName}</h3>
-                      <div className="flex items-center gap-4 mb-4">
+            {jobs.map((job) => {
+              const { label, className, Icon } = statusMeta(job.status);
+              const inProgress = !TERMINAL_STATUSES.includes(job.status);
+
+              return (
+                <Card key={job.id} className="hover:shadow-md transition-shadow">
+                  <CardContent className="pt-6">
+                    <h3 className="text-xl font-bold text-gray-900 mb-3">{job.appName}</h3>
+
+                    {/* スペック */}
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gray-100 rounded text-sm text-gray-700">
+                        <Terminal className="h-3.5 w-3.5" aria-hidden />
+                        {job.language}
+                      </span>
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gray-100 rounded text-sm text-gray-700">
+                        <Database className="h-3.5 w-3.5" aria-hidden />
+                        {job.dbType}
+                      </span>
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gray-100 rounded text-sm text-gray-700">
+                        <Sparkles className="h-3.5 w-3.5" aria-hidden />
+                        {job.model}
+                      </span>
+                    </div>
+
+                    {job.prompt && (
+                      <p className="text-sm text-gray-600 mb-4 line-clamp-2">{job.prompt}</p>
+                    )}
+
+                    {/* ステータス */}
+                    <div className="border-t pt-4">
+                      <div className="flex items-center justify-between mb-3">
                         <span
-                          className={`px-3 py-1 rounded-full text-sm font-semibold ${getStatusColor(
-                            job.status
-                          )}`}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold ${className}`}
                         >
-                          {getStatusLabel(job.status)}
+                          <Icon
+                            className={`h-4 w-4 ${inProgress && job.status !== 'design_review' ? 'animate-spin' : ''}`}
+                            aria-hidden
+                          />
+                          {label}
                         </span>
-                        {job.status !== 'deployed' && job.status !== 'failed' && (
-                          <div className="flex-1 max-w-xs">
-                            <div className="w-full bg-gray-200 rounded-full h-2">
-                              <div
-                                className="bg-blue-600 h-2 rounded-full transition-all"
-                                style={{ width: `${job.progress}%` }}
-                              />
-                            </div>
-                            <p className="text-xs text-gray-600 mt-1">{job.progress}%</p>
-                          </div>
+                        {inProgress && (
+                          <span className="text-xs text-gray-500">{job.progress}%</span>
                         )}
                       </div>
-                      {job.error && <p className="text-sm text-red-600 mb-2">エラー: {job.error}</p>}
+
+                      {inProgress && (
+                        <div
+                          className="w-full bg-gray-200 rounded-full h-2 mb-4"
+                          role="progressbar"
+                          aria-valuenow={job.progress}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                        >
+                          <div
+                            className="bg-blue-600 h-2 rounded-full transition-all"
+                            style={{ width: `${job.progress}%` }}
+                          />
+                        </div>
+                      )}
+
+                      {/* URL は完了時のみ表示 */}
+                      {job.status === 'deployed' && job.appUrl && (
+                        <div className="mb-4 p-3 bg-blue-50 rounded border border-blue-100">
+                          <p className="text-xs text-gray-600 mb-1">アプリ URL</p>
+                          <a
+                            href={job.appUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-blue-600 hover:underline break-all"
+                          >
+                            {job.appUrl}
+                          </a>
+                        </div>
+                      )}
+
+                      {job.error && (
+                        <p className="flex gap-2 text-sm text-red-600 mb-3">
+                          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden />
+                          {job.error}
+                        </p>
+                      )}
+
                       <p className="text-xs text-gray-500">
                         作成日: {new Date(job.createdAt).toLocaleString('ja-JP')}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2 ml-4">
-                      {job.appUrl && (
-                        <a
-                          href={job.appUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold"
-                        >
-                          開く
+
+                    {/* アクション */}
+                    <div className="flex gap-2 justify-end border-t mt-4 pt-4">
+                      {job.status === 'design_review' && (
+                        <Link href={`/?job=${job.id}`}>
+                          <Button variant="outline" className="gap-1.5">
+                            <FileSearch className="h-4 w-4" aria-hidden />
+                            設計書を確認
+                          </Button>
+                        </Link>
+                      )}
+                      {job.status === 'deployed' && job.appUrl && (
+                        <a href={job.appUrl} target="_blank" rel="noopener noreferrer">
+                          <Button className="gap-1.5">
+                            <ExternalLink className="h-4 w-4" aria-hidden />
+                            開く
+                          </Button>
                         </a>
                       )}
-                      <button
+                      <Button
+                        variant="destructive"
                         onClick={() => handleDelete(job.id)}
-                        className="px-4 py-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 text-sm font-semibold"
+                        className="gap-1.5"
                       >
+                        <Trash2 className="h-4 w-4" aria-hidden />
                         削除
-                      </button>
+                      </Button>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         )}
       </div>

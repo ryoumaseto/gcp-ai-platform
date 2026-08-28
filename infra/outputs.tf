@@ -1,12 +1,23 @@
 # ===== Cloud Run URLs =====
+# .uri は既にスキーム付き (https://...) を返すため、そのまま出力する
 output "frontend_url" {
   description = "Frontend application URL"
-  value       = "https://${google_cloud_run_service.frontend.status[0].url}"
+  value       = google_cloud_run_v2_service.frontend.uri
 }
 
 output "backend_url" {
   description = "Backend API URL"
-  value       = "https://${google_cloud_run_service.backend.status[0].url}"
+  value       = google_cloud_run_v2_service.backend.uri
+}
+
+# 予測した URL と実際の URL が食い違う場合は、この値を
+# terraform.tfvars の frontend_url / backend_url に設定して再 apply する
+output "url_prediction_matches" {
+  description = "Whether derived Cloud Run URLs match the actual ones (false = set frontend_url/backend_url in tfvars)"
+  value = (
+    google_cloud_run_v2_service.frontend.uri == local.frontend_url &&
+    google_cloud_run_v2_service.backend.uri == local.backend_url
+  )
 }
 
 # ===== Cloud SQL =====
@@ -56,11 +67,11 @@ output "vpc_connector_id" {
 output "deployment_info" {
   description = "Quick deployment reference"
   value = {
-    project_id         = var.gcp_project_id
-    region             = var.gcp_region
-    frontend_service   = google_cloud_run_service.frontend.name
-    backend_service    = google_cloud_run_service.backend.name
-    database_instance  = google_sql_database_instance.main.name
-    security_level     = "HIGH (100-point security audit)"
+    project_id        = var.gcp_project_id
+    region            = var.gcp_region
+    frontend_service  = google_cloud_run_v2_service.frontend.name
+    backend_service   = google_cloud_run_v2_service.backend.name
+    database_instance = google_sql_database_instance.main.name
+    security_level    = "HIGH (100-point security audit)"
   }
 }
