@@ -167,7 +167,15 @@ function assertRequiredEnv() {
   const required = ['JWT_SECRET_KEY'];
 
   if (process.env.NODE_ENV === 'production') {
-    required.push('DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME', 'GEMINI_API_KEY', 'FRONTEND_URL');
+    required.push('DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME', 'FRONTEND_URL');
+
+    // Vertex AI はサービスアカウント認証なので API キーは不要。
+    // 代わりにプロジェクト ID が要る。
+    if ((process.env.GEMINI_PROVIDER || 'vertex').toLowerCase() === 'aistudio') {
+      required.push('GEMINI_API_KEY');
+    } else if (!process.env.GCP_PROJECT_ID && !process.env.GOOGLE_CLOUD_PROJECT) {
+      required.push('GCP_PROJECT_ID');
+    }
   }
 
   const missing = required.filter((name) => !process.env[name]);

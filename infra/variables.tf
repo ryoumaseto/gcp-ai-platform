@@ -111,3 +111,21 @@ variable "labels" {
     environment = "production"
   }
 }
+
+# ===== Gemini =====
+variable "gemini_provider" {
+  description = "Where to call Gemini: vertex (service account auth, no API key) or aistudio (API key)"
+  type        = string
+  default     = "vertex"
+
+  validation {
+    condition     = contains(["vertex", "aistudio"], var.gemini_provider)
+    error_message = "gemini_provider must be vertex or aistudio"
+  }
+}
+
+variable "vertex_location" {
+  description = "Vertex AI region for Gemini calls"
+  type        = string
+  default     = "us-central1"
+}

@@ -32,10 +32,21 @@ for cmd in gcloud docker terraform; do
   fi
 done
 
-if [ -z "${GEMINI_API_KEY:-}" ]; then
-  echo -e "${RED}GEMINI_API_KEY が設定されていません${NC}"
-  echo "  export GEMINI_API_KEY=your-key   # https://aistudio.google.com/apikey"
+# Gemini の接続先。既定は Vertex AI（サービスアカウント認証）で、
+# この場合 API キーは一切不要。
+GEMINI_PROVIDER=$(grep -E '^\s*gemini_provider\s*=' infra/terraform.tfvars 2>/dev/null \
+  | sed -E 's/.*=\s*"([^"]*)".*/\1/' | head -1)
+GEMINI_PROVIDER="${GEMINI_PROVIDER:-vertex}"
+
+if [ "$GEMINI_PROVIDER" = "aistudio" ] && [ -z "${GEMINI_API_KEY:-}" ]; then
+  echo -e "${RED}GEMINI_API_KEY が設定されていません（gemini_provider=aistudio のため）${NC}"
+  echo "  export GEMINI_API_KEY=your-key"
   exit 1
+fi
+
+echo "  Gemini 接続先: ${GEMINI_PROVIDER}"
+if [ "$GEMINI_PROVIDER" = "vertex" ]; then
+  echo "  （API キー不要 — サービスアカウント認証を使用）"
 fi
 
 echo -e "${GREEN}前提条件 OK${NC}"
@@ -85,18 +96,23 @@ cd ..
 echo -e "${GREEN}Artifact Registry 準備完了${NC}"
 
 # ===== Step 3: Gemini API キーを Secret Manager へ投入 =====
-# 値を tfstate に平文で残さないため、Terraform ではなく gcloud で投入する。
-echo -e "\n${YELLOW}Step 3: Gemini API キーを Secret Manager に登録しています...${NC}"
+# vertex の場合はキー自体が不要なので丸ごとスキップする。
+if [ "$GEMINI_PROVIDER" = "aistudio" ]; then
+  echo -e "\n${YELLOW}Step 3: Gemini API キーを Secret Manager に登録しています...${NC}"
 
-cd infra
-terraform apply -input=false -auto-approve \
-  -target=google_secret_manager_secret.gemini_api_key
-cd ..
+  cd infra
+  terraform apply -input=false -auto-approve \
+    -target=google_secret_manager_secret.gemini_api_key
+  cd ..
 
-printf '%s' "$GEMINI_API_KEY" | gcloud secrets versions add app-gen-gemini-api-key \
-  --project="$PROJECT_ID" --data-file=- > /dev/null
+  # 値を tfstate に平文で残さないため、Terraform ではなく gcloud で投入する。
+  printf '%s' "$GEMINI_API_KEY" | gcloud secrets versions add app-gen-gemini-api-key \
+    --project="$PROJECT_ID" --data-file=- > /dev/null
 
-echo -e "${GREEN}シークレット登録完了${NC}"
+  echo -e "${GREEN}シークレット登録完了${NC}"
+else
+  echo -e "\n${YELLOW}Step 3: Vertex AI 使用のため API キーの登録は不要です${NC}"
+fi
 
 # ===== Step 4: バックエンド URL を確定してイメージをビルド =====
 # NEXT_PUBLIC_* はビルド時にクライアントバンドルへ埋め込まれるため、

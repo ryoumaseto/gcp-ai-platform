@@ -143,8 +143,19 @@ describe('GeminiService', () => {
 
   // Test Suite 3: エラーハンドリング
   describe('Error Handling', () => {
-    test('should handle missing API key gracefully', async () => {
+    // 既定の接続先は vertex だが、ここでは資格情報に依存しない
+    // aistudio 経路で構造を検証する
+    const originalProvider = process.env.GEMINI_PROVIDER;
+    beforeAll(() => { process.env.GEMINI_PROVIDER = 'aistudio'; });
+    afterAll(() => {
+      if (originalProvider === undefined) delete process.env.GEMINI_PROVIDER;
+      else process.env.GEMINI_PROVIDER = originalProvider;
+    });
+
+    test('aistudio: API キー未設定なら失敗を返す', async () => {
       const originalKey = process.env.GEMINI_API_KEY;
+      const originalProvider = process.env.GEMINI_PROVIDER;
+      process.env.GEMINI_PROVIDER = 'aistudio';
       delete process.env.GEMINI_API_KEY;
 
       const result = await geminiService.generateContent('test prompt');
@@ -152,7 +163,29 @@ describe('GeminiService', () => {
       expect(result.success).toBe(false);
       expect(result.error).toContain('GEMINI_API_KEY');
 
-      process.env.GEMINI_API_KEY = originalKey;
+      if (originalKey === undefined) delete process.env.GEMINI_API_KEY;
+      else process.env.GEMINI_API_KEY = originalKey;
+      if (originalProvider === undefined) delete process.env.GEMINI_PROVIDER;
+      else process.env.GEMINI_PROVIDER = originalProvider;
+    });
+
+    test('vertex: プロジェクト ID 未設定なら失敗を返す', async () => {
+      const originalProvider = process.env.GEMINI_PROVIDER;
+      const originalProject = process.env.GCP_PROJECT_ID;
+      const originalGoogleProject = process.env.GOOGLE_CLOUD_PROJECT;
+      process.env.GEMINI_PROVIDER = 'vertex';
+      delete process.env.GCP_PROJECT_ID;
+      delete process.env.GOOGLE_CLOUD_PROJECT;
+
+      const result = await geminiService.generateContent('test prompt');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('GCP_PROJECT_ID');
+
+      if (originalProvider === undefined) delete process.env.GEMINI_PROVIDER;
+      else process.env.GEMINI_PROVIDER = originalProvider;
+      if (originalProject !== undefined) process.env.GCP_PROJECT_ID = originalProject;
+      if (originalGoogleProject !== undefined) process.env.GOOGLE_CLOUD_PROJECT = originalGoogleProject;
     });
 
     test('should include timestamp in all responses', async () => {

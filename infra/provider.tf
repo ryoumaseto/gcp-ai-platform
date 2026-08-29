@@ -33,6 +33,7 @@ resource "google_project_service" "required_apis" {
     "artifactregistry.googleapis.com",
     "secretmanager.googleapis.com",
     "vpcaccess.googleapis.com",
+    "aiplatform.googleapis.com",
   ])
 
   service            = each.value

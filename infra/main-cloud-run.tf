@@ -192,12 +192,33 @@ resource "google_cloud_run_v2_service" "backend" {
         }
       }
 
+      # Vertex AI 利用時は API キー不要。サービスアカウントの認証情報が
+      # メタデータサーバー経由で自動的に使われる。
       env {
-        name = "GEMINI_API_KEY"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.gemini_api_key.secret_id
-            version = "latest"
+        name  = "GEMINI_PROVIDER"
+        value = var.gemini_provider
+      }
+
+      env {
+        name  = "GCP_PROJECT_ID"
+        value = var.gcp_project_id
+      }
+
+      env {
+        name  = "VERTEX_LOCATION"
+        value = var.vertex_location
+      }
+
+      # aistudio を選んだ場合のみ Secret Manager からキーを注入する
+      dynamic "env" {
+        for_each = var.gemini_provider == "aistudio" ? [1] : []
+        content {
+          name = "GEMINI_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.gemini_api_key.secret_id
+              version = "latest"
+            }
           }
         }
       }
@@ -273,6 +294,14 @@ resource "google_artifact_registry_repository" "app_gen" {
 resource "google_service_account" "app_gen" {
   account_id   = "app-gen"
   display_name = "App Gen Service Account"
+}
+
+# Vertex AI で Gemini を呼ぶための権限。
+# これにより Cloud Run 上では API キー無しで生成 API を利用できる。
+resource "google_project_iam_member" "app_gen_vertex_user" {
+  project = var.gcp_project_id
+  role    = "roles/aiplatform.user"
+  member  = "serviceAccount:${google_service_account.app_gen.email}"
 }
 
 resource "google_project_iam_member" "app_gen_sql_client" {

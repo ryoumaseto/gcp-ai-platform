@@ -38,8 +38,19 @@ services:
       - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD is required (.env を作成してください)}
       - DB_NAME=${DB_NAME:?DB_NAME is required (.env を作成してください)}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY is required (openssl rand -base64 48 で生成)}
-      - GEMINI_API_KEY=${GEMINI_API_KEY:?GEMINI_API_KEY is required}
+      # vertex: サービスアカウント認証（API キー不要）
+      # aistudio: API キー方式
+      - GEMINI_PROVIDER=${GEMINI_PROVIDER:-vertex}
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID:-}
+      - VERTEX_LOCATION=${VERTEX_LOCATION:-us-central1}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      # ローカルで Vertex を使う場合は gcloud の ADC を参照する
+      - GOOGLE_APPLICATION_CREDENTIALS=/gcloud/application_default_credentials.json
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+    volumes:
+      # gcloud auth application-default login で作られる認証情報を読み取り専用で渡す。
+      # Cloud Run では不要（メタデータサーバーから自動取得される）。
+      - ${HOME}/.config/gcloud:/gcloud:ro
     depends_on:
       db:
         condition: service_healthy

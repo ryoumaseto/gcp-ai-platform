@@ -1,22 +1,88 @@
 const axios = require('axios');
+const { GoogleAuth } = require('google-auth-library');
 
-const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-// モジュール読み込み時に固定すると、後から環境変数を差し替えても反映されない
+// ===== 接続先 =====
+// vertex   : Vertex AI。Cloud Run ではアタッチされたサービスアカウントの
+//            認証情報が自動で使われるため API キーが一切不要になる。
+// aistudio : Gemini Developer API。API キー方式。
+const getProvider = () => (process.env.GEMINI_PROVIDER || 'vertex').toLowerCase();
+
+const AISTUDIO_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
+// 環境変数はモジュール読み込み時に固定すると、後から差し替えても反映されない
 // （テストや起動順の違いで未設定扱いになる）ため、呼び出しごとに読む。
 const getApiKey = () => process.env.GEMINI_API_KEY;
+const getProjectId = () => process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT;
+const getLocation = () => process.env.VERTEX_LOCATION || 'us-central1';
 
 /**
- * Gemini API を使用してコードを生成
+ * Gemini（Vertex AI / AI Studio）でコードを生成する
  */
 class GeminiService {
   constructor() {
-    this.client = axios.create({
-      baseURL: GEMINI_API_BASE,
+    this.http = axios.create({
       // maxOutputTokens 8192 の生成は 30 秒では収まらず、
       // タイムアウトでジョブが誤って failed になる。
       // リクエスト経路外のバックグラウンド処理なので長めに取る。
       timeout: Number(process.env.GEMINI_TIMEOUT_MS || 180000),
     });
+
+    this.auth = null;
+  }
+
+  /**
+   * Vertex AI 用のアクセストークンを取得する。
+   * Cloud Run 上ではメタデータサーバー経由でアタッチされた
+   * サービスアカウントの認証情報が自動的に使われる（鍵ファイル不要）。
+   * ローカルでは `gcloud auth application-default login` の認証情報を使う。
+   */
+  async getAccessToken() {
+    if (!this.auth) {
+      this.auth = new GoogleAuth({
+        scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+      });
+    }
+
+    const client = await this.auth.getClient();
+    const token = await client.getAccessToken();
+
+    if (!token || !token.token) {
+      throw new Error('Failed to obtain Google Cloud access token');
+    }
+
+    return token.token;
+  }
+
+  /**
+   * 接続先に応じた URL と認証ヘッダを組み立てる
+   */
+  async buildRequest(model, action) {
+    if (getProvider() === 'aistudio') {
+      const API_KEY = getApiKey();
+      if (!API_KEY) {
+        throw new Error('GEMINI_API_KEY is not configured');
+      }
+
+      return {
+        url: `${AISTUDIO_BASE}/models/${model}:${action}`,
+        headers: { 'x-goog-api-key': API_KEY },
+      };
+    }
+
+    const project = getProjectId();
+    if (!project) {
+      throw new Error('GCP_PROJECT_ID is not configured (required for Vertex AI)');
+    }
+
+    const location = getLocation();
+    const token = await this.getAccessToken();
+
+    return {
+      url:
+        `https://${location}-aiplatform.googleapis.com/v1/projects/${project}` +
+        `/locations/${location}/publishers/google/models/${model}:${action}`,
+      headers: { Authorization: `Bearer ${token}` },
+    };
   }
 
   /**
@@ -116,17 +182,12 @@ SEVERITY_COUNTS: critical=<n> high=<n> medium=<n> low=<n>
    */
   async generateContent(prompt, model = 'gemini-flash-latest') {
     try {
-      const API_KEY = getApiKey();
-      if (!API_KEY) {
-        throw new Error('GEMINI_API_KEY is not configured');
-      }
+      const { url, headers } = await this.buildRequest(model, 'generateContent');
 
-      // キーは x-goog-api-key ヘッダで送る。
-      // ?key= のクエリパラメータ方式は URL に載るためプロキシや
-      // アクセスログに残りうる。ヘッダ方式が現行の推奨。
-      const response = await this.client.post(`${model}:generateContent`, {
+      const response = await this.http.post(url, {
         contents: [
           {
+            role: 'user',
             parts: [
               {
                 text: prompt,
@@ -139,11 +200,7 @@ SEVERITY_COUNTS: critical=<n> high=<n> medium=<n> low=<n>
           maxOutputTokens: 8192,
           topP: 0.8,
         },
-      }, {
-        headers: {
-          'x-goog-api-key': API_KEY,
-        },
-      });
+      }, { headers });
 
       if (!response.data.candidates || response.data.candidates.length === 0) {
         throw new Error('No content generated from Gemini API');
@@ -162,7 +219,7 @@ SEVERITY_COUNTS: critical=<n> high=<n> medium=<n> low=<n>
       const apiMessage = error.response?.data?.error?.message;
       const detail = apiMessage ? `${error.message}: ${apiMessage}` : error.message;
 
-      console.error('Gemini API Error:', detail);
+      console.error(`Gemini API Error (${getProvider()}):`, detail);
       return {
         success: false,
         error: detail,
@@ -208,28 +265,53 @@ SEVERITY_COUNTS: critical=<n> high=<n> medium=<n> low=<n>
    */
   async listModels() {
     try {
-      const API_KEY = getApiKey();
-      if (!API_KEY) {
-        throw new Error('GEMINI_API_KEY is not configured');
+      if (getProvider() === 'aistudio') {
+        const API_KEY = getApiKey();
+        if (!API_KEY) {
+          throw new Error('GEMINI_API_KEY is not configured');
+        }
+
+        const response = await this.http.get(`${AISTUDIO_BASE}/models`, {
+          headers: { 'x-goog-api-key': API_KEY },
+          timeout: 15000,
+        });
+
+        const models = (response.data.models || [])
+          // 生成に使えるものだけに絞る（埋め込み専用モデル等を除外）
+          .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
+          .map((m) => ({
+            id: String(m.name).replace(/^models\//, ''),
+            label: m.displayName || String(m.name).replace(/^models\//, ''),
+          }));
+
+        return { success: true, models };
       }
 
-      const response = await this.client.get('', {
-        headers: { 'x-goog-api-key': API_KEY },
-        timeout: 15000,
-      });
+      // Vertex AI は publisher モデルを列挙する
+      const location = getLocation();
+      const token = await this.getAccessToken();
 
-      const models = (response.data.models || [])
-        // 生成に使えるものだけに絞る（埋め込み専用モデル等を除外）
-        .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
-        .map((m) => ({
-          id: String(m.name).replace(/^models\//, ''),
-          label: m.displayName || String(m.name).replace(/^models\//, ''),
-        }));
+      const response = await this.http.get(
+        `https://${location}-aiplatform.googleapis.com/v1/publishers/google/models`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          params: { pageSize: 200 },
+          timeout: 15000,
+        }
+      );
+
+      const models = (response.data.publisherModels || [])
+        .map((m) => String(m.name).replace(/^publishers\/google\/models\//, ''))
+        // 生成系の Gemini モデルのみ（埋め込み・画像・TTS などを除外）
+        .filter((id) => /^gemini-/.test(id) && !/(embedding|tts|image|omni)/.test(id))
+        .map((id) => ({ id, label: id }));
 
       return { success: true, models };
     } catch (error) {
-      console.error('Failed to list Gemini models:', error.message);
-      return { success: false, error: error.message, models: [] };
+      const apiMessage = error.response?.data?.error?.message;
+      const detail = apiMessage ? `${error.message}: ${apiMessage}` : error.message;
+      console.error(`Failed to list models (${getProvider()}):`, detail);
+      return { success: false, error: detail, models: [] };
     }
   }
 
