@@ -157,14 +157,48 @@ SEVERITY_COUNTS: critical=<n> high=<n> medium=<n> low=<n>
         timestamp: new Date(),
       };
     } catch (error) {
-      console.error('Gemini API Error:', error.message);
+      // axios のメッセージは "Request failed with status code 503" だけで
+      // API が返した理由が落ちてしまうため、本文から取り出して残す。
+      const apiMessage = error.response?.data?.error?.message;
+      const detail = apiMessage ? `${error.message}: ${apiMessage}` : error.message;
+
+      console.error('Gemini API Error:', detail);
       return {
         success: false,
-        error: error.message,
+        error: detail,
+        status: error.response?.status,
         model: model,
         timestamp: new Date(),
       };
     }
+  }
+
+  /**
+   * 一時的な障害はリトライする。
+   * Gemini は過負荷時に 503、レート超過時に 429 を返し、
+   * これらは時間を置けば成功する。1 回の失敗でジョブを落とすと
+   * 利用者から見て「たまに壊れるサービス」になってしまう。
+   */
+  async generateContentWithRetry(prompt, model, attempts = 4) {
+    const RETRYABLE = [429, 500, 502, 503, 504];
+    let last;
+
+    for (let i = 0; i < attempts; i++) {
+      last = await this.generateContent(prompt, model);
+      if (last.success) return last;
+
+      const retryable = RETRYABLE.includes(last.status);
+      if (!retryable || i === attempts - 1) return last;
+
+      // 指数バックオフ + ジッタ（2s, 4s, 8s 前後）
+      const waitMs = 2000 * 2 ** i + Math.floor(Math.random() * 1000);
+      console.warn(
+        `Gemini ${last.status} - ${Math.round(waitMs / 1000)}秒後に再試行 (${i + 1}/${attempts - 1})`
+      );
+      await new Promise((r) => setTimeout(r, waitMs));
+    }
+
+    return last;
   }
 
   /**
@@ -204,7 +238,7 @@ SEVERITY_COUNTS: critical=<n> high=<n> medium=<n> low=<n>
    */
   async generateApplicationCode(jobData) {
     const prompt = this.buildCodeGenerationPrompt(jobData);
-    return this.generateContent(prompt, jobData.model || 'gemini-flash-latest');
+    return this.generateContentWithRetry(prompt, jobData.model || 'gemini-flash-latest');
   }
 
   /**
@@ -212,7 +246,7 @@ SEVERITY_COUNTS: critical=<n> high=<n> medium=<n> low=<n>
    */
   async generateTests(generatedCode, language, model = 'gemini-flash-latest') {
     const prompt = this.buildTestGenerationPrompt(generatedCode, language);
-    return this.generateContent(prompt, model);
+    return this.generateContentWithRetry(prompt, model);
   }
 
   /**
@@ -220,7 +254,7 @@ SEVERITY_COUNTS: critical=<n> high=<n> medium=<n> low=<n>
    */
   async performSecurityAudit(generatedCode, language, model = 'gemini-flash-latest') {
     const prompt = this.buildSecurityAuditPrompt(generatedCode, language);
-    return this.generateContent(prompt, model);
+    return this.generateContentWithRetry(prompt, model);
   }
 
   /**
