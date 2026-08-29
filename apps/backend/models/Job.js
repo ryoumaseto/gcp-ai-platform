@@ -44,7 +44,7 @@ module.exports = (sequelize, DataTypes) => {
       },
       model: {
         type: DataTypes.STRING(50),
-        defaultValue: 'gemini-2.0-flash',
+        defaultValue: 'gemini-flash-latest',
       },
       progress: {
         type: DataTypes.INTEGER,

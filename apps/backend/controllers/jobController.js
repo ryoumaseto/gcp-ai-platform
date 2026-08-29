@@ -62,7 +62,7 @@ exports.createJob = async (req, res) => {
       prompt: description,
       language: language || 'TypeScript',
       dbType: dbType || 'PostgreSQL',
-      model: model || 'gemini-2.0-flash',
+      model: model || 'gemini-flash-latest',
       status: 'pending',
       progress: 0,
     });
@@ -77,6 +77,21 @@ exports.createJob = async (req, res) => {
     console.error('Error in createJob:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
+};
+
+// 利用可能なモデル一覧
+exports.listModels = async (req, res) => {
+  const result = await geminiService.listModels();
+
+  // 取得に失敗しても画面が使えなくならないよう、既定値を返す
+  if (!result.success || result.models.length === 0) {
+    return res.json({
+      models: [{ id: 'gemini-flash-latest', label: 'Gemini Flash (latest)' }],
+      fallback: true,
+    });
+  }
+
+  res.json({ models: result.models, fallback: false });
 };
 
 // ジョブ取得

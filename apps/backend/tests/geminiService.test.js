@@ -164,10 +164,10 @@ describe('GeminiService', () => {
     });
 
     test('should include model info in response', async () => {
-      const result = await geminiService.generateContent('test', 'gemini-1.5-pro');
+      const result = await geminiService.generateContent('test', 'gemini-flash-latest');
 
       expect(result).toHaveProperty('model');
-      expect(result.model).toBe('gemini-1.5-pro');
+      expect(result.model).toBe('gemini-flash-latest');
     });
   });
 

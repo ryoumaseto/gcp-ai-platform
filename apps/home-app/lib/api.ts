@@ -59,6 +59,18 @@ export const generateApp = async (payload: {
   return response.data;
 };
 
+export interface GeminiModel {
+  id: string;
+  label: string;
+}
+
+// 利用可能なモデルはハードコードせず API から取得する
+// （モデル ID は Google 側の都合で提供終了するため）
+export const listModels = async (): Promise<{ models: GeminiModel[]; fallback: boolean }> => {
+  const response = await api.get('/api/jobs/models');
+  return response.data;
+};
+
 export const listJobs = async (): Promise<{ jobs: GenerationJob[]; stats: JobStats }> => {
   const response = await api.get('/api/jobs');
   return response.data;

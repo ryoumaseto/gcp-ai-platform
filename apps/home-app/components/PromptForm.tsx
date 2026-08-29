@@ -7,7 +7,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { useStore } from '@/lib/store';
-import { generateApp, listJobs } from '@/lib/api';
+import { generateApp, listJobs, listModels, GeminiModel } from '@/lib/api';
 import toast from 'react-hot-toast';
 
 interface PromptFormProps {
@@ -20,7 +20,10 @@ export default function PromptForm({ onJobCreated }: PromptFormProps) {
   const [appName, setAppName] = useState('');
   const [language, setLanguage] = useState('TypeScript');
   const [dbType, setDbType] = useState('PostgreSQL');
-  const [model, setModel] = useState('gemini-2.0-flash');
+  const [model, setModel] = useState('gemini-flash-latest');
+  const [models, setModels] = useState<GeminiModel[]>([
+    { id: 'gemini-flash-latest', label: 'Gemini Flash (latest)' },
+  ]);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [canCreate, setCanCreate] = useState(true);
@@ -32,6 +35,24 @@ export default function PromptForm({ onJobCreated }: PromptFormProps) {
     setIsLoggedIn(!!token);
     setCanCreate(jobStats.canCreate);
   }, [jobStats]);
+
+  // 実際に使えるモデルを取得して選択肢に反映する
+  useEffect(() => {
+    if (!localStorage.getItem('token')) return;
+
+    listModels()
+      .then((data) => {
+        if (data.models.length === 0) return;
+        setModels(data.models);
+        // 取得したリストに現在の選択が無ければ先頭に寄せる
+        setModel((current) =>
+          data.models.some((m) => m.id === current) ? current : data.models[0].id
+        );
+      })
+      .catch(() => {
+        /* 取得に失敗しても既定のモデルで生成できるようにする */
+      });
+  }, [isLoggedIn]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -156,10 +177,11 @@ export default function PromptForm({ onJobCreated }: PromptFormProps) {
           onChange={(e) => setModel(e.target.value)}
           className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-950"
         >
-          <option value="gemini-2.0-flash">Gemini 2.0 Flash（最速）</option>
-          <option value="gemini-2.0-flash-thinking">Gemini 2.0 Flash Thinking（推論重視）</option>
-          <option value="gemini-1.5-pro">Gemini 1.5 Pro（高精度）</option>
-          <option value="gemini-1.5-flash">Gemini 1.5 Flash（バランス型）</option>
+          {models.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label}
+            </option>
+          ))}
         </select>
       </div>
 

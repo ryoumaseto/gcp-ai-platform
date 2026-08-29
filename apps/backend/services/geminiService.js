@@ -114,7 +114,7 @@ SEVERITY_COUNTS: critical=<n> high=<n> medium=<n> low=<n>
   /**
    * Gemini API を呼び出してコンテンツを生成
    */
-  async generateContent(prompt, model = 'gemini-2.0-flash') {
+  async generateContent(prompt, model = 'gemini-flash-latest') {
     try {
       const API_KEY = getApiKey();
       if (!API_KEY) {
@@ -168,17 +168,49 @@ SEVERITY_COUNTS: critical=<n> high=<n> medium=<n> low=<n>
   }
 
   /**
+   * 利用可能なモデル一覧を取得する。
+   * モデル ID をハードコードすると Google 側の提供終了でアプリが壊れるため、
+   * 実際に使えるものを API から引く。
+   */
+  async listModels() {
+    try {
+      const API_KEY = getApiKey();
+      if (!API_KEY) {
+        throw new Error('GEMINI_API_KEY is not configured');
+      }
+
+      const response = await this.client.get('', {
+        headers: { 'x-goog-api-key': API_KEY },
+        timeout: 15000,
+      });
+
+      const models = (response.data.models || [])
+        // 生成に使えるものだけに絞る（埋め込み専用モデル等を除外）
+        .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
+        .map((m) => ({
+          id: String(m.name).replace(/^models\//, ''),
+          label: m.displayName || String(m.name).replace(/^models\//, ''),
+        }));
+
+      return { success: true, models };
+    } catch (error) {
+      console.error('Failed to list Gemini models:', error.message);
+      return { success: false, error: error.message, models: [] };
+    }
+  }
+
+  /**
    * アプリケーションコードを生成
    */
   async generateApplicationCode(jobData) {
     const prompt = this.buildCodeGenerationPrompt(jobData);
-    return this.generateContent(prompt, jobData.model || 'gemini-2.0-flash');
+    return this.generateContent(prompt, jobData.model || 'gemini-flash-latest');
   }
 
   /**
    * テストコードを生成
    */
-  async generateTests(generatedCode, language, model = 'gemini-2.0-flash') {
+  async generateTests(generatedCode, language, model = 'gemini-flash-latest') {
     const prompt = this.buildTestGenerationPrompt(generatedCode, language);
     return this.generateContent(prompt, model);
   }
@@ -186,7 +218,7 @@ SEVERITY_COUNTS: critical=<n> high=<n> medium=<n> low=<n>
   /**
    * セキュリティ監査を実行
    */
-  async performSecurityAudit(generatedCode, language, model = 'gemini-2.0-flash') {
+  async performSecurityAudit(generatedCode, language, model = 'gemini-flash-latest') {
     const prompt = this.buildSecurityAuditPrompt(generatedCode, language);
     return this.generateContent(prompt, model);
   }

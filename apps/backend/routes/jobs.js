@@ -6,6 +6,9 @@ const { verifyToken } = require('../middleware/auth');
 // すべてのルートに認証が必須
 router.use(verifyToken);
 
+// 利用可能な Gemini モデル一覧
+router.get('/models', jobController.listModels);
+
 // ジョブ作成
 router.post('/', jobController.createJob);
 
