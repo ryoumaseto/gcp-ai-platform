@@ -1,7 +1,9 @@
 const axios = require('axios');
 
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-const API_KEY = process.env.GEMINI_API_KEY;
+// モジュール読み込み時に固定すると、後から環境変数を差し替えても反映されない
+// （テストや起動順の違いで未設定扱いになる）ため、呼び出しごとに読む。
+const getApiKey = () => process.env.GEMINI_API_KEY;
 
 /**
  * Gemini API を使用してコードを生成
@@ -114,10 +116,14 @@ SEVERITY_COUNTS: critical=<n> high=<n> medium=<n> low=<n>
    */
   async generateContent(prompt, model = 'gemini-2.0-flash') {
     try {
+      const API_KEY = getApiKey();
       if (!API_KEY) {
         throw new Error('GEMINI_API_KEY is not configured');
       }
 
+      // キーは x-goog-api-key ヘッダで送る。
+      // ?key= のクエリパラメータ方式は URL に載るためプロキシや
+      // アクセスログに残りうる。ヘッダ方式が現行の推奨。
       const response = await this.client.post(`${model}:generateContent`, {
         contents: [
           {
@@ -134,8 +140,8 @@ SEVERITY_COUNTS: critical=<n> high=<n> medium=<n> low=<n>
           topP: 0.8,
         },
       }, {
-        params: {
-          key: API_KEY,
+        headers: {
+          'x-goog-api-key': API_KEY,
         },
       });
 
