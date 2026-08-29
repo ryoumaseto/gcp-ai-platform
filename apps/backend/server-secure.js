@@ -49,8 +49,15 @@ app.use(helmet());
 app.use(AdvancedSecurity.enforceHTTPS);
 
 // 3️⃣ CORS 設定（限定的に）
+// カスタムドメイン導入時は、証明書発行が完了するまで Cloud Run の URL と
+// 独自ドメインの両方からアクセスされうる。カンマ区切りで複数オリジンを許可する。
+const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:3000')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: allowedOrigins,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],

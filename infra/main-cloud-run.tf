@@ -13,8 +13,19 @@ locals {
   predicted_frontend_url = "https://${local.frontend_service_name}-${data.google_project.current.number}.${var.gcp_region}.run.app"
   predicted_backend_url  = "https://${local.backend_service_name}-${data.google_project.current.number}.${var.gcp_region}.run.app"
 
-  frontend_url = var.frontend_url != "" ? var.frontend_url : local.predicted_frontend_url
-  backend_url  = var.backend_url != "" ? var.backend_url : local.predicted_backend_url
+  frontend_run_url = var.frontend_url != "" ? var.frontend_url : local.predicted_frontend_url
+  backend_run_url  = var.backend_url != "" ? var.backend_url : local.predicted_backend_url
+
+  # カスタムドメインがあればそちらを正とする
+  frontend_url = var.frontend_domain != "" ? "https://${var.frontend_domain}" : local.frontend_run_url
+  backend_url  = var.backend_domain != "" ? "https://${var.backend_domain}" : local.backend_run_url
+
+  # CORS 許可オリジン。ドメインマッピングは証明書発行まで時間がかかり、
+  # その間は Cloud Run の URL でもアクセスされるため両方を許可する。
+  cors_origins = join(",", distinct(compact([
+    local.frontend_url,
+    local.frontend_run_url,
+  ])))
 }
 
 # ===== Cloud Run: Frontend =====
@@ -154,9 +165,10 @@ resource "google_cloud_run_v2_service" "backend" {
         value = google_sql_database.app_maker.name
       }
 
+      # カンマ区切りで複数オリジンを許可（バックエンドが分解する）
       env {
         name  = "FRONTEND_URL"
-        value = local.frontend_url
+        value = local.cors_origins
       }
 
       # ===== Secret Manager から注入 =====

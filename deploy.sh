@@ -102,8 +102,17 @@ echo -e "${GREEN}シークレット登録完了${NC}"
 # NEXT_PUBLIC_* はビルド時にクライアントバンドルへ埋め込まれるため、
 # フロントのビルド前にバックエンド URL が確定している必要がある。
 # Cloud Run のデフォルト URL は project number から決まるので事前に計算できる。
-PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
-BACKEND_URL="https://app-gen-backend-${PROJECT_NUMBER}.${REGION}.run.app"
+# カスタムドメインが tfvars にあればそちらを優先する。
+BACKEND_DOMAIN=$(grep -E '^\s*backend_domain\s*=' infra/terraform.tfvars 2>/dev/null \
+  | sed -E 's/.*=\s*"([^"]*)".*/\1/' | head -1)
+
+if [ -n "$BACKEND_DOMAIN" ]; then
+  BACKEND_URL="https://${BACKEND_DOMAIN}"
+  echo "  カスタムドメインを使用します"
+else
+  PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
+  BACKEND_URL="https://app-gen-backend-${PROJECT_NUMBER}.${REGION}.run.app"
+fi
 
 echo -e "\n${YELLOW}Step 4: Docker イメージをビルドしています...${NC}"
 echo "  Backend URL (フロントに埋め込む): ${BACKEND_URL}"
@@ -140,13 +149,16 @@ cd infra
 ACTUAL_FRONTEND_URL=$(terraform output -raw frontend_url)
 ACTUAL_BACKEND_URL=$(terraform output -raw backend_url)
 URL_MATCH=$(terraform output -raw url_prediction_matches)
+# 疎通確認は Cloud Run の URL で行う。カスタムドメインは DNS 伝播と
+# 証明書発行に時間がかかり、デプロイ直後は必ず失敗するため。
+HEALTH_URL=$(terraform output -raw backend_run_url)
 cd ..
 
 echo -e "\n${YELLOW}アクセス URL:${NC}"
 echo "  Frontend: ${ACTUAL_FRONTEND_URL}"
 echo "  Backend:  ${ACTUAL_BACKEND_URL}"
 
-if [ "$URL_MATCH" != "true" ]; then
+if [ "$URL_MATCH" != "true" ] && [ -z "$BACKEND_DOMAIN" ]; then
   echo -e "\n${RED}警告: 予測した Cloud Run URL が実際の URL と一致しませんでした。${NC}"
   echo "  infra/terraform.tfvars に以下を追記して、このスクリプトを再実行してください:"
   echo "    frontend_url = \"${ACTUAL_FRONTEND_URL}\""
@@ -157,7 +169,7 @@ fi
 # ===== Step 8: 疎通確認 =====
 echo -e "\n${YELLOW}Step 8: ヘルスチェックを実行しています...${NC}"
 
-HEALTH_CODE=$(curl -s -o /dev/null -w '%{http_code}' "${ACTUAL_BACKEND_URL}/health" || echo "000")
+HEALTH_CODE=$(curl -s -o /dev/null -w '%{http_code}' "${HEALTH_URL}/health" || echo "000")
 
 if [ "$HEALTH_CODE" = "200" ]; then
   echo -e "${GREEN}バックエンド正常 (/health -> 200)${NC}"
@@ -170,3 +182,12 @@ fi
 
 echo -e "\n${GREEN}デプロイ完了${NC}"
 echo -e "  ${ACTUAL_FRONTEND_URL} をブラウザで開いてください。"
+
+if [ -n "$BACKEND_DOMAIN" ]; then
+  echo -e "\n${YELLOW}カスタムドメインの反映には DNS 伝播と証明書発行で最大 48 時間かかります。${NC}"
+  echo "  それまでは Cloud Run の URL でアクセスできます:"
+  echo "    ${HEALTH_URL}"
+  echo "  設定すべき DNS レコード:"
+  echo "    cd infra && terraform output frontend_dns_records"
+  echo "    cd infra && terraform output backend_dns_records"
+fi

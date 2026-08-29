@@ -14,10 +14,24 @@ output "backend_url" {
 # terraform.tfvars の frontend_url / backend_url に設定して再 apply する
 output "url_prediction_matches" {
   description = "Whether derived Cloud Run URLs match the actual ones (false = set frontend_url/backend_url in tfvars)"
+  # 比較対象はカスタムドメインではなく、予測した Cloud Run の URL
   value = (
-    google_cloud_run_v2_service.frontend.uri == local.frontend_url &&
-    google_cloud_run_v2_service.backend.uri == local.backend_url
+    google_cloud_run_v2_service.frontend.uri == local.frontend_run_url &&
+    google_cloud_run_v2_service.backend.uri == local.backend_run_url
   )
+}
+
+# Cloud Run が即座に払い出す URL（カスタムドメインの反映を待たずに疎通確認できる）
+output "backend_run_url" {
+  description = "Backend Cloud Run URL (always available, unlike a custom domain)"
+  value       = google_cloud_run_v2_service.backend.uri
+}
+
+# フロントのビルド時に埋め込むべき API URL
+# （カスタムドメインがあればそちら、無ければ Cloud Run の URL）
+output "frontend_build_api_url" {
+  description = "Value to pass as --build-arg NEXT_PUBLIC_API_URL when building the frontend"
+  value       = local.backend_url
 }
 
 # ===== Cloud SQL =====
