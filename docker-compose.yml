@@ -47,9 +47,12 @@ services:
       # ローカルで Vertex を使う場合は gcloud の ADC を参照する
       - GOOGLE_APPLICATION_CREDENTIALS=/gcloud/application_default_credentials.json
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+    # ADC ファイルはホストユーザー所有・パーミッション 600 のため、
+    # イメージ既定の nodejs(1001) では読めない。ローカル検証に限り
+    # ホストと同じ uid で動かす。Cloud Run では user 指定もマウントも不要
+    # （メタデータサーバーから認証情報が自動取得される）。
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
     volumes:
-      # gcloud auth application-default login で作られる認証情報を読み取り専用で渡す。
-      # Cloud Run では不要（メタデータサーバーから自動取得される）。
       - ${HOME}/.config/gcloud:/gcloud:ro
     depends_on:
       db:

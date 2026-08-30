@@ -13,7 +13,22 @@ const AISTUDIO_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 // （テストや起動順の違いで未設定扱いになる）ため、呼び出しごとに読む。
 const getApiKey = () => process.env.GEMINI_API_KEY;
 const getProjectId = () => process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT;
-const getLocation = () => process.env.VERTEX_LOCATION || 'us-central1';
+// global は us-central1 等より利用できるモデルが多く、ホスト名も異なる
+// （global-aiplatform... ではなく aiplatform...）。
+const getLocation = () => process.env.VERTEX_LOCATION || 'global';
+const vertexHost = (location) =>
+  location === 'global' ? 'aiplatform.googleapis.com' : `${location}-aiplatform.googleapis.com`;
+
+// Vertex AI にはモデル一覧 API が実質使えない（publishers/google/models は 404/403）。
+// -latest エイリアスは Google 側で最新モデルを指し続けるため、
+// ここを固定してもモデル終了で壊れない。
+const VERTEX_MODELS = [
+  { id: 'gemini-flash-latest', label: 'Gemini Flash (latest)' },
+  { id: 'gemini-flash-lite-latest', label: 'Gemini Flash Lite (latest, 最安)' },
+  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (高精度)' },
+  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+  { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite' },
+];
 
 /**
  * Gemini（Vertex AI / AI Studio）でコードを生成する
@@ -79,7 +94,7 @@ class GeminiService {
 
     return {
       url:
-        `https://${location}-aiplatform.googleapis.com/v1/projects/${project}` +
+        `https://${vertexHost(location)}/v1/projects/${project}` +
         `/locations/${location}/publishers/google/models/${model}:${action}`,
       headers: { Authorization: `Bearer ${token}` },
     };
@@ -287,26 +302,9 @@ SEVERITY_COUNTS: critical=<n> high=<n> medium=<n> low=<n>
         return { success: true, models };
       }
 
-      // Vertex AI は publisher モデルを列挙する
-      const location = getLocation();
-      const token = await this.getAccessToken();
-
-      const response = await this.http.get(
-        `https://${location}-aiplatform.googleapis.com/v1/publishers/google/models`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-          params: { pageSize: 200 },
-          timeout: 15000,
-        }
-      );
-
-      const models = (response.data.publisherModels || [])
-        .map((m) => String(m.name).replace(/^publishers\/google\/models\//, ''))
-        // 生成系の Gemini モデルのみ（埋め込み・画像・TTS などを除外）
-        .filter((id) => /^gemini-/.test(id) && !/(embedding|tts|image|omni)/.test(id))
-        .map((id) => ({ id, label: id }));
-
-      return { success: true, models };
+      // Vertex AI は publishers/google/models の列挙が使えない（404/403）ため、
+      // 検証済みのモデルを返す。-latest は Google 側が最新を指すので陳腐化しない。
+      return { success: true, models: VERTEX_MODELS };
     } catch (error) {
       const apiMessage = error.response?.data?.error?.message;
       const detail = apiMessage ? `${error.message}: ${apiMessage}` : error.message;
