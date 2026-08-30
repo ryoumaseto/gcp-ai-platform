@@ -354,21 +354,63 @@ async function finalizeJob(jobId) {
       throw new Error(`生成コードを解釈できませんでした: ${parsed.error}`);
     }
 
-    const result = await deployService.deployGeneratedApp({
+    // 進捗を画面へ反映する。ビルドは数分かかるため、
+    // 何も動かないと利用者には固まったように見える。
+    const onProgress = async (message, progress) => {
+      const current = await Job.findByPk(jobId);
+      if (!current) return;
+      if (typeof progress === 'number') current.progress = progress;
+      await current.save();
+    };
+
+    let result = await deployService.deployGeneratedApp({
       jobId,
       files: parsed.files,
       port: parsed.port,
       startCommand: parsed.startCommand,
       language: job.language,
-      // 進捗を画面へ反映する。ビルドは数分かかるため、
-      // 何も動かないと利用者には固まったように見える。
-      onProgress: async (message, progress) => {
-        const current = await Job.findByPk(jobId);
-        if (!current) return;
-        if (typeof progress === 'number') current.progress = progress;
-        await current.save();
-      },
+      onProgress,
     });
+
+    // デプロイに失敗し、原因が特定できている場合は
+    // それをモデルに伝えて作り直す（画面が無い／コンパイルできない等）。
+    // 同じ入力で再生成しても同じ構成が出てきやすく、
+    // 指摘を渡さない再試行は意味がない。
+    // 1 回だけにするのは、生成とビルドのコストが往復ごとにかかるため。
+    if (!result.success && result.feedback) {
+      console.warn(`[${jobId}] 作り直します: ${result.error}`);
+      await onProgress('生成し直しています', 20);
+
+      const retryCode = await geminiService.generateApplicationCode({
+        appName: job.appName,
+        prompt: job.prompt,
+        language: job.language,
+        dbType: job.dbType,
+        model: job.model,
+        previousFailure: result.feedback,
+      });
+
+      if (!retryCode.success) {
+        throw new Error(`作り直しに失敗しました: ${retryCode.error}`);
+      }
+
+      const retryParsed = parseGeneratedCode(retryCode.content);
+      if (!retryParsed.success) {
+        throw new Error(`作り直したコードを解釈できませんでした: ${retryParsed.error}`);
+      }
+
+      job.generatedCode = retryCode.content;
+      await job.save();
+
+      result = await deployService.deployGeneratedApp({
+        jobId,
+        files: retryParsed.files,
+        port: retryParsed.port,
+        startCommand: retryParsed.startCommand,
+        language: job.language,
+        onProgress,
+      });
+    }
 
     if (!result.success) {
       throw new Error(`デプロイに失敗しました: ${result.error}`);

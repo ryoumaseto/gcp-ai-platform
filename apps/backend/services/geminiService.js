@@ -109,8 +109,19 @@ class GeminiService {
    * 返すよう指示する形に変更した（パース側は codeParser.js が担当）。
    */
   buildCodeGenerationPrompt(jobData) {
+    // 前回の失敗理由が分かっているときは、それを具体的に伝える。
+    // 同じ入力で作り直しても同じ結果になりやすく、
+    // 「何が駄目だったか」を渡さないと再生成が無意味になる。
+    const feedback = jobData.previousFailure
+      ? `
+**A previous attempt at this exact task failed. Do not repeat the mistake:**
+${jobData.previousFailure}
+`
+      : '';
+
     return `
 You are an expert software developer. Generate a complete, production-ready application based on the following requirements:
+${feedback}
 
 **Project Details:**
 - App Name: ${jobData.appName}
@@ -140,6 +151,15 @@ imposes hard constraints on what you may generate:
 - At most 40 files total.
 - Each file's content must be at most 100,000 characters (100KB).
 - The combined size of all file contents must be at most 2,000,000 characters (2MB).
+
+**The app must be usable in a browser (this is the whole point):**
+- GET / MUST return an HTML page. Not JSON, not 404, not a redirect to a
+  frontend that does not exist. Someone opening the URL must see the app.
+- That single page must be enough to use every feature you were asked for.
+  Do not assume a separate frontend will be deployed — there is only this
+  one container.
+- If you expose an API, the page must call it. An API with no page is a
+  failed deliverable.
 
 **Runtime requirements (the container must start on its own):**
 - The start command must run with only what a plain node runtime provides

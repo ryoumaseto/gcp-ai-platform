@@ -140,3 +140,11 @@ resource "google_service_account_iam_member" "app_gen_can_act_as_builder" {
   role               = "roles/iam.serviceAccountUser"
   member             = "serviceAccount:${google_service_account.app_gen.email}"
 }
+
+# ビルド失敗時にコンパイルエラーを読み取り、生成し直す際の指摘に使う。
+# 原因を渡さずに再試行しても同じ結果になりやすい。
+resource "google_project_iam_member" "app_gen_logs_viewer" {
+  project = var.gcp_project_id
+  role    = "roles/logging.viewAccessor"
+  member  = "serviceAccount:${google_service_account.app_gen.email}"
+}

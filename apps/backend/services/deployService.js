@@ -1,6 +1,7 @@
 const fs = require('fs/promises');
 const os = require('os');
 const path = require('path');
+const axios = require('axios');
 const tar = require('tar');
 const { Storage } = require('@google-cloud/storage');
 const { CloudBuildClient } = require('@google-cloud/cloudbuild');
@@ -208,14 +209,60 @@ async function buildImage({ source, imageUri, timeoutSeconds = 900 }) {
   // gRPC クライアントは status を数値 enum で返す（3 = SUCCESS）。
   // 文字列比較だけだと成功を失敗と誤判定するため、両方を受け付ける。
   if (!isBuildSuccess(build.status)) {
-    throw new Error(
+    // "Build failed; check build logs" だけでは、モデルに作り直させる際に
+    // 何を直せばよいか伝えられない。実際のコンパイルエラーを拾う。
+    const detail = await fetchBuildErrors(build.id);
+
+    const error = new Error(
       `Cloud Build が失敗しました (${describeBuildStatus(build.status)})` +
-        `${build.statusDetail ? `: ${build.statusDetail}` : ''}` +
-        `${build.logUrl ? ` ログ: ${build.logUrl}` : ''}`
+        `${detail ? `: ${detail}` : build.statusDetail ? `: ${build.statusDetail}` : ''}`
     );
+    error.buildDetail = detail;
+    throw error;
   }
 
   return build;
+}
+
+/**
+ * ビルドログから実際のエラー行を拾う。
+ * Cloud Build は CLOUD_LOGGING_ONLY で Cloud Logging に書くため、そこを引く。
+ */
+async function fetchBuildErrors(buildId) {
+  if (!buildId) return null;
+
+  try {
+    const auth = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
+    const client = await auth.getClient();
+
+    const { data } = await client.request({
+      url: 'https://logging.googleapis.com/v2/entries:list',
+      method: 'POST',
+      data: {
+        resourceNames: [`projects/${getProjectId()}`],
+        filter: `logName="projects/${getProjectId()}/logs/cloudbuild" AND labels.build_id="${buildId}"`,
+        orderBy: 'timestamp desc',
+        pageSize: 80,
+      },
+    });
+
+    const lines = (data.entries || [])
+      .map((e) => e.textPayload)
+      .filter(Boolean)
+      .reverse();
+
+    // コンパイルエラーや npm のエラーだけを抜き出す。
+    // ビルドログ全体を渡すとノイズが多く、モデルが要点を見失う。
+    const interesting = lines.filter((l) =>
+      /error|ERR!|failed|cannot find|not found/i.test(l)
+    );
+
+    const picked = (interesting.length ? interesting : lines).slice(-15);
+    return picked.join('\n').slice(0, 2000) || null;
+  } catch (error) {
+    console.warn('ビルドログの取得に失敗:', error.message);
+    return null;
+  }
 }
 
 /**
@@ -328,6 +375,50 @@ async function waitForOperation(client, operation, timeoutMs = 300000) {
 }
 
 /**
+ * デプロイしたアプリが「使える」ことを確認する。
+ *
+ * Cloud Run の起動判定はポートで待ち受けているかしか見ない。
+ * API だけを実装して / にページを持たないアプリでも起動は成功するため、
+ * それだけでは「開いたら Cannot GET /」が利用者に届いてしまう。
+ * 実際に / を叩いて HTML が返ることまで確認する。
+ */
+async function verifyServesPage(url, { attempts = 6, delayMs = 5000 } = {}) {
+  let last = null;
+
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await axios.get(url, {
+        timeout: 20000,
+        // 404 などでも例外にせず中身を見たい
+        validateStatus: () => true,
+        headers: { Accept: 'text/html' },
+      });
+
+      const type = String(res.headers['content-type'] || '');
+      const body = typeof res.data === 'string' ? res.data : '';
+
+      if (res.status === 200 && type.includes('text/html') && /<html|<!doctype/i.test(body)) {
+        return { ok: true };
+      }
+
+      last =
+        res.status !== 200
+          ? `GET / が HTTP ${res.status} を返しました`
+          : !type.includes('text/html')
+            ? `GET / が HTML ではなく ${type || '不明な形式'} を返しました`
+            : 'GET / の応答が HTML として認識できませんでした';
+    } catch (error) {
+      last = `GET / に到達できませんでした: ${error.message}`;
+    }
+
+    // 初回アクセスはコールドスタートで時間がかかることがある
+    if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs));
+  }
+
+  return { ok: false, reason: last };
+}
+
+/**
  * 生成されたアプリをデプロイして URL を返す。
  *
  * @param {object} params
@@ -375,11 +466,37 @@ async function deployGeneratedApp({ jobId, files, port, startCommand, language, 
     await notify('Cloud Run にデプロイしています', 96);
     const url = await deployToCloudRun({ serviceName, imageUri, port });
 
+    await notify('画面が表示できるか確認しています', 98);
+    const usable = await verifyServesPage(url);
+
+    if (!usable.ok) {
+      // 起動はしているが使えない。成功として返すと
+      // 「開いたら Cannot GET /」が利用者に届く。
+      return {
+        success: false,
+        error: `アプリは起動しましたが画面がありません（${usable.reason}）`,
+        // 再生成時にモデルへ渡して同じ失敗を繰り返させない
+        feedback:
+          'The previous attempt started but served no web page: ' +
+          `${usable.reason}. ` +
+          'GET / must return an HTML page that lets a person use the whole app. ' +
+          'An API-only server is not acceptable.',
+        url,
+      };
+    }
+
     await notify(`デプロイ完了: ${url}`, 100);
     return { success: true, url };
   } catch (error) {
     console.error(`[${jobId}] デプロイ失敗:`, error.message);
-    return { success: false, error: error.message };
+
+    // ビルドが落ちた原因が分かっているなら、それを添えて作り直させる。
+    // 原因を渡さない再試行は同じ結果になりやすい。
+    const feedback = error.buildDetail
+      ? 'The previous attempt did not compile. Fix these errors:\n' + error.buildDetail
+      : undefined;
+
+    return { success: false, error: error.message, ...(feedback ? { feedback } : {}) };
   } finally {
     if (workDir) await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
   }
@@ -414,6 +531,7 @@ async function deleteGeneratedApp(jobId) {
 }
 
 module.exports = {
+  verifyServesPage,
   isBuildSuccess,
   describeBuildStatus,
   deployGeneratedApp,
