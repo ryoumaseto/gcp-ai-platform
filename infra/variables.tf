@@ -125,7 +125,7 @@ variable "gemini_provider" {
 }
 
 variable "vertex_location" {
-  description = "Vertex AI location for Gemini calls. global exposes more models than a specific region."
+  description = "Gemini Enterprise Agent Platform (formerly Vertex AI) location. global exposes more models than a specific region."
   type        = string
   default     = "global"
 }

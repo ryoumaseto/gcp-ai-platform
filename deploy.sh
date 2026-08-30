@@ -32,7 +32,8 @@ for cmd in gcloud docker terraform; do
   fi
 done
 
-# Gemini の接続先。既定は Vertex AI（サービスアカウント認証）で、
+# Gemini の接続先。既定は Gemini Enterprise Agent Platform（旧 Vertex AI）の
+# サービスアカウント認証で、
 # この場合 API キーは一切不要。
 # grep が該当なしで終了コード 1 を返すと set -e でスクリプトが止まるため、
 # 未設定を正常系として扱う（|| true）。
@@ -113,7 +114,7 @@ if [ "$GEMINI_PROVIDER" = "aistudio" ]; then
 
   echo -e "${GREEN}シークレット登録完了${NC}"
 else
-  echo -e "\n${YELLOW}Step 3: Vertex AI 使用のため API キーの登録は不要です${NC}"
+  echo -e "\n${YELLOW}Step 3: サービスアカウント認証のため API キーの登録は不要です${NC}"
 fi
 
 # ===== Step 4: バックエンド URL を確定してイメージをビルド =====

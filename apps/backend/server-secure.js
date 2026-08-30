@@ -169,7 +169,7 @@ function assertRequiredEnv() {
   if (process.env.NODE_ENV === 'production') {
     required.push('DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME', 'FRONTEND_URL');
 
-    // Vertex AI はサービスアカウント認証なので API キーは不要。
+    // Gemini Enterprise Agent Platform はサービスアカウント認証なので API キーは不要。
     // 代わりにプロジェクト ID が要る。
     if ((process.env.GEMINI_PROVIDER || 'vertex').toLowerCase() === 'aistudio') {
       required.push('GEMINI_API_KEY');

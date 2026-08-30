@@ -2,7 +2,9 @@ const axios = require('axios');
 const { GoogleAuth } = require('google-auth-library');
 
 // ===== 接続先 =====
-// vertex   : Vertex AI。Cloud Run ではアタッチされたサービスアカウントの
+// vertex   : Gemini Enterprise Agent Platform（旧 Vertex AI）。
+//            識別子が vertex なのは、エンドポイントが aiplatform.googleapis.com のため。
+//            Cloud Run ではアタッチされたサービスアカウントの
 //            認証情報が自動で使われるため API キーが一切不要になる。
 // aistudio : Gemini Developer API。API キー方式。
 const getProvider = () => (process.env.GEMINI_PROVIDER || 'vertex').toLowerCase();
@@ -19,7 +21,7 @@ const getLocation = () => process.env.VERTEX_LOCATION || 'global';
 const vertexHost = (location) =>
   location === 'global' ? 'aiplatform.googleapis.com' : `${location}-aiplatform.googleapis.com`;
 
-// Vertex AI にはモデル一覧 API が実質使えない（publishers/google/models は 404/403）。
+// この経路にはモデル一覧 API が実質使えない（publishers/google/models は 404/403）。
 // -latest エイリアスは Google 側で最新モデルを指し続けるため、
 // ここを固定してもモデル終了で壊れない。
 const VERTEX_MODELS = [
@@ -31,7 +33,7 @@ const VERTEX_MODELS = [
 ];
 
 /**
- * Gemini（Vertex AI / AI Studio）でコードを生成する
+ * Gemini（Gemini Enterprise Agent Platform / AI Studio）でコードを生成する
  */
 class GeminiService {
   constructor() {
@@ -46,7 +48,7 @@ class GeminiService {
   }
 
   /**
-   * Vertex AI 用のアクセストークンを取得する。
+   * Gemini Enterprise Agent Platform 用のアクセストークンを取得する。
    * Cloud Run 上ではメタデータサーバー経由でアタッチされた
    * サービスアカウントの認証情報が自動的に使われる（鍵ファイル不要）。
    * ローカルでは `gcloud auth application-default login` の認証情報を使う。

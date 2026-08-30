@@ -44,7 +44,7 @@ services:
       - GCP_PROJECT_ID=${GCP_PROJECT_ID:-}
       - VERTEX_LOCATION=${VERTEX_LOCATION:-us-central1}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      # ローカルで Vertex を使う場合は gcloud の ADC を参照する
+      # ローカルでサービスアカウント認証を使う場合は gcloud の ADC を参照する
       - GOOGLE_APPLICATION_CREDENTIALS=/gcloud/application_default_credentials.json
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
     # ADC ファイルはホストユーザー所有・パーミッション 600 のため、

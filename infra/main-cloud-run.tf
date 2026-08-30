@@ -225,7 +225,8 @@ resource "google_cloud_run_v2_service" "backend" {
         }
       }
 
-      # Vertex AI 利用時は API キー不要。サービスアカウントの認証情報が
+      # Gemini Enterprise Agent Platform（旧 Vertex AI）利用時は API キー不要。
+      # サービスアカウントの認証情報が
       # メタデータサーバー経由で自動的に使われる。
       env {
         name  = "GEMINI_PROVIDER"
@@ -334,7 +335,7 @@ resource "google_service_account" "app_gen" {
   display_name = "App Gen Service Account"
 }
 
-# Vertex AI で Gemini を呼ぶための権限。
+# Gemini Enterprise Agent Platform（旧 Vertex AI）で Gemini を呼ぶための権限。
 # これにより Cloud Run 上では API キー無しで生成 API を利用できる。
 resource "google_project_iam_member" "app_gen_vertex_user" {
   project = var.gcp_project_id
