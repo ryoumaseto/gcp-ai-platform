@@ -141,6 +141,15 @@ imposes hard constraints on what you may generate:
 - Each file's content must be at most 100,000 characters (100KB).
 - The combined size of all file contents must be at most 2,000,000 characters (2MB).
 
+**Runtime requirements (the container must start on its own):**
+- The start command must run with only what a plain node runtime provides
+  after "npm install". Do not rely on ts-node, tsx, nodemon or any watcher
+  at runtime.
+- If you write TypeScript, add a "build" script that compiles to JavaScript
+  and make "start" run the compiled output. Do not compile on startup.
+- The server must begin listening promptly; do not block startup on network
+  calls, migrations, or seeding.
+
 **Keep it small — this matters more than completeness:**
 - Aim for 5-10 files. Do not create folders or layers you do not actually use.
 - No tests, no CI config, no README, no .gitignore, no example/env files.

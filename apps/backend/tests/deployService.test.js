@@ -115,3 +115,32 @@ describe('Cloud Build の状態判定', () => {
     expect(describeBuildStatus('FAILURE')).toBe('status=FAILURE');
   });
 });
+
+describe('Node の生成物をビルドできること', () => {
+  const { buildDockerfile } = require('../services/deployService');
+  const pkg = [{ path: 'package.json', content: '{}' }];
+
+  // TypeScript のコンパイラは devDependency に入るため、
+  // --omit=dev で入れるとビルドが走らず dist/ が生成されない。
+  // 実際にこれで "Cannot find module '/app/dist/index.js'" が起きた。
+  test('依存のインストール時に devDependencies を除外しない', () => {
+    const df = buildDockerfile({ language: 'TypeScript', port: 8080, files: pkg });
+    expect(df).toContain('npm install --no-audit --no-fund');
+    expect(df).not.toMatch(/npm install[^\n]*--omit=dev/);
+  });
+
+  // 生成物が実行時に何を必要とするかは事前に分からない。
+  // prune した結果 start が呼ぶ ts-node が消え、
+  // "sh: ts-node: not found" でコンテナが起動しなかった。
+  test('依存を削らない（実行時に必要なものを消してしまうため）', () => {
+    const df = buildDockerfile({ language: 'TypeScript', port: 8080, files: pkg });
+    expect(df).not.toContain('npm prune');
+  });
+
+  // ビルドの要否を知っているのは生成物自身。tsconfig.json の有無で
+  // 推測すると、それを持たない構成を取りこぼす。
+  test('tsconfig.json が無くても build スクリプトを試す', () => {
+    const df = buildDockerfile({ language: 'TypeScript', port: 8080, files: pkg });
+    expect(df).toContain('npm run build --if-present');
+  });
+});

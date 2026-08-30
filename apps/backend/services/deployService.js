@@ -76,21 +76,35 @@ CMD ${JSON.stringify(['sh', '-c', cmd])}
   }
 
   // 既定は Node.js（TypeScript 生成物もここに乗せる）
-  const install = has('package.json')
-    ? // lock ファイルの有無に関わらず動くよう install を使う。
-      // 生成物に lock は無いことが多く、npm ci だと失敗する。
-      'RUN npm install --omit=dev --no-audit --no-fund'
-    : '# package.json なし';
-  const build = has('tsconfig.json')
-    ? 'RUN npm run build --if-present'
-    : '';
+  //
+  // devDependencies を含めて入れる。TypeScript のコンパイラやバンドラは
+  // devDependency に置かれるのが普通で、--omit=dev で入れると
+  // ビルドが走らず dist/ が生成されないまま npm start に到達し、
+  // "Cannot find module '/app/dist/index.js'" でコンテナが起動しない。
+  // ビルド後に prune して本番依存だけ残す。
+  //
+  // lock ファイルの有無に関わらず動くよう install を使う
+  // （生成物に lock は無いことが多く、npm ci は失敗する）。
+  const steps = has('package.json')
+    ? [
+        'RUN npm install --no-audit --no-fund',
+        // tsconfig.json の有無ではなく package.json の build スクリプトを基準にする。
+        // ビルドが必要かを知っているのは生成物自身であり、設定ファイルの
+        // 有無で推測すると取りこぼす。
+        'RUN npm run build --if-present',
+        // prune はしない。生成物が実行時に何を必要とするかは事前に分からず、
+        // 実際に start が ts-node（devDependency）を呼ぶ構成で
+        // "sh: ts-node: not found" になった。
+        // イメージは多少大きくなるが、生成アプリは短命なので影響は小さい。
+      ]
+    : ['# package.json なし'];
+
   const cmd = startCommand || (has('package.json') ? 'npm start' : 'node index.js');
 
   return `FROM node:20-alpine
 WORKDIR /app
 COPY . .
-${install}
-${build}
+${steps.join('\n')}
 ENV PORT=${port}
 EXPOSE ${port}
 CMD ${JSON.stringify(['sh', '-c', cmd])}
@@ -237,6 +251,15 @@ async function deployToCloudRun({ serviceName, imageUri, port }) {
           image: imageUri,
           ports: [{ containerPort: port }],
           resources: { limits: { cpu: '1', memory: '512Mi' } },
+          // 既定の起動プローブは短く、フレームワークの初期化が間に合わずに
+          // 起動失敗と判定されることがある。生成物の中身は選べないので余裕を持たせる。
+          startupProbe: {
+            tcpSocket: { port },
+            initialDelaySeconds: 5,
+            timeoutSeconds: 5,
+            periodSeconds: 5,
+            failureThreshold: 24,
+          },
         },
       ],
     },
