@@ -97,10 +97,27 @@ class AdvancedSecurity {
     return emailRegex.test(email) && email.length <= 255;
   }
 
+  /**
+   * パスワード要件: 12 文字以上、英字・数字・記号をそれぞれ 1 つ以上。
+   *
+   * 使用できる文字種は制限しない。以前は [A-Za-z\d@$!%*#?&] のホワイトリストで
+   * 全体を検証していたため、ハイフンやアンダースコア、日本語を含む妥当な
+   * パスワードが拒否されていた（しかもエラー文言からは理由が分からなかった）。
+   * 文字種を狭めることはエントロピーを下げるだけで、安全性には寄与しない。
+   *
+   * 上限 72 バイトは bcrypt の制約。これを超える分は黙って切り捨てられ、
+   * 利用者が意図したパスワードと実際に検証される値がずれるため明示的に弾く。
+   */
   static validatePassword(password) {
-    // パスワード要件: 12 文字以上、特殊文字含む
-    const regex = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{12,}$/;
-    return regex.test(password);
+    if (typeof password !== 'string') return false;
+    if (password.length < 12) return false;
+    if (Buffer.byteLength(password, 'utf8') > 72) return false;
+
+    const hasLetter = /\p{L}/u.test(password);
+    const hasDigit = /\d/.test(password);
+    const hasSymbol = /[^\p{L}\d]/u.test(password);
+
+    return hasLetter && hasDigit && hasSymbol;
   }
 
   /**

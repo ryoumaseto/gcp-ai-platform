@@ -59,7 +59,7 @@ router.post('/signup', async (req, res) => {
 
     if (!AdvancedSecurity.validatePassword(password)) {
       return res.status(400).json({
-        error: 'パスワードは12文字以上で、英字・数字・特殊文字 (@$!%*#?&) を含める必要があります',
+        error: 'パスワードは12〜72バイトで、英字・数字・記号をそれぞれ1つ以上含める必要があります',
       });
     }
 

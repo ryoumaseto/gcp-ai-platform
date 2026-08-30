@@ -150,7 +150,15 @@ echo "  Backend URL (フロントに埋め込む): ${BACKEND_URL}"
 
 # ビルドごとに一意なタグを付ける。:latest だけだと Terraform に差分が出ず、
 # 新しいイメージを push しても Cloud Run が古いリビジョンを配信し続ける。
-IMAGE_TAG="$(date -u +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD 2>/dev/null || echo nogit)"
+# 作業ツリーに未コミットの変更があると、タグに入る SHA と実際に焼き込まれる
+# コードが食い違い、「どのコミットが動いているか」を追えなくなる。
+# その場合は -dirty を付けて、追跡不能であることをタグ自体に残す。
+GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo nogit)"
+if ! git diff --quiet HEAD 2>/dev/null; then
+  GIT_SHA="${GIT_SHA}-dirty"
+  echo -e "  ${YELLOW}警告: 未コミットの変更があります。イメージとコミットが一致しません。${NC}"
+fi
+IMAGE_TAG="$(date -u +%Y%m%d-%H%M%S)-${GIT_SHA}"
 export TF_VAR_image_tag="$IMAGE_TAG"
 echo "  イメージタグ: ${IMAGE_TAG}"
 

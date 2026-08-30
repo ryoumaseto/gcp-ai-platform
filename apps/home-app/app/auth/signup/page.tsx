@@ -19,18 +19,25 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  // サーバー側 (AdvancedSecurity.validatePassword) と同じ規則にする。
+  // ここが緩いと、画面では通るのに送信後 400 で弾かれ、
+  // しかも理由の分からないエラーが出ることになる。
   const validatePassword = (pwd: string): string | null => {
     if (pwd.length < 12) {
       return 'パスワードは12文字以上である必要があります';
     }
-    if (!/[A-Z]/.test(pwd)) {
-      return '大文字を最低1文字含める必要があります';
+    // bcrypt は 72 バイトを超える分を切り捨てるため、サーバー側でも弾いている
+    if (new TextEncoder().encode(pwd).length > 72) {
+      return 'パスワードが長すぎます（72バイト以内）';
+    }
+    if (!/\p{L}/u.test(pwd)) {
+      return '英字を最低1文字含める必要があります';
     }
     if (!/[0-9]/.test(pwd)) {
       return '数字を最低1文字含める必要があります';
     }
-    if (!/[@$!%*#?&]/.test(pwd)) {
-      return '特殊文字 (@$!%*#?&) を最低1文字含める必要があります';
+    if (!/[^\p{L}0-9]/u.test(pwd)) {
+      return '記号を最低1文字含める必要があります';
     }
     return null;
   };
@@ -139,14 +146,14 @@ export default function SignupPage() {
               <Input
                 id="password"
                 type="password"
-                placeholder="最低12文字（大文字・数字・特殊文字を含む）"
+                placeholder="12文字以上（英字・数字・記号を含む）"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
               />
               {errors.password && <p className="text-sm text-red-600">{errors.password}</p>}
               <p className="text-xs text-gray-500 mt-1">
-                要件: 12文字以上、大文字、数字、特殊文字 (@$!%*#?&)
+                要件: 12文字以上、英字・数字・記号をそれぞれ1つ以上
               </p>
             </div>
 
