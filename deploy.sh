@@ -34,8 +34,10 @@ done
 
 # Gemini の接続先。既定は Vertex AI（サービスアカウント認証）で、
 # この場合 API キーは一切不要。
-GEMINI_PROVIDER=$(grep -E '^\s*gemini_provider\s*=' infra/terraform.tfvars 2>/dev/null \
-  | sed -E 's/.*=\s*"([^"]*)".*/\1/' | head -1)
+# grep が該当なしで終了コード 1 を返すと set -e でスクリプトが止まるため、
+# 未設定を正常系として扱う（|| true）。
+GEMINI_PROVIDER=$( { grep -E '^\s*gemini_provider\s*=' infra/terraform.tfvars 2>/dev/null \
+  | sed -E 's/.*=\s*"([^"]*)".*/\1/' | head -1; } || true )
 GEMINI_PROVIDER="${GEMINI_PROVIDER:-vertex}"
 
 if [ "$GEMINI_PROVIDER" = "aistudio" ] && [ -z "${GEMINI_API_KEY:-}" ]; then
@@ -119,23 +121,47 @@ fi
 # フロントのビルド前にバックエンド URL が確定している必要がある。
 # Cloud Run のデフォルト URL は project number から決まるので事前に計算できる。
 # カスタムドメインが tfvars にあればそちらを優先する。
-BACKEND_DOMAIN=$(grep -E '^\s*backend_domain\s*=' infra/terraform.tfvars 2>/dev/null \
-  | sed -E 's/.*=\s*"([^"]*)".*/\1/' | head -1)
+# 同上。ドメイン未設定（コメントアウト）が既定なので必ず該当なしになる。
+BACKEND_DOMAIN=$( { grep -E '^\s*backend_domain\s*=' infra/terraform.tfvars 2>/dev/null \
+  | sed -E 's/.*=\s*"([^"]*)".*/\1/' | head -1; } || true )
 
-if [ -n "$BACKEND_DOMAIN" ]; then
+# 優先順位:
+#   1. terraform output frontend_build_api_url
+#      （既に apply 済みなら、実 URL やカスタムドメインが反映された正しい値）
+#   2. tfvars の backend_domain
+#   3. project number からの予測（初回 apply 前のフォールバック）
+# 2 番目までを飛ばして 3 に落ちると、URL 形式が予測と違うプロジェクトで
+# 誤った URL をバンドルに焼き込んでしまう。
+BACKEND_URL=$( { cd infra && terraform output -raw frontend_build_api_url 2>/dev/null; cd ..; } || true )
+
+if [ -n "$BACKEND_URL" ]; then
+  echo "  Terraform の出力から取得しました"
+elif [ -n "$BACKEND_DOMAIN" ]; then
   BACKEND_URL="https://${BACKEND_DOMAIN}"
   echo "  カスタムドメインを使用します"
 else
   PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
   BACKEND_URL="https://app-gen-backend-${PROJECT_NUMBER}.${REGION}.run.app"
+  echo "  project number から予測しました（初回 apply 前）"
 fi
 
 echo -e "\n${YELLOW}Step 4: Docker イメージをビルドしています...${NC}"
 echo "  Backend URL (フロントに埋め込む): ${BACKEND_URL}"
 
-docker build -t "${REGISTRY}/backend:latest" ./apps/backend
-docker build -t "${REGISTRY}/frontend:latest" \
+# ビルドごとに一意なタグを付ける。:latest だけだと Terraform に差分が出ず、
+# 新しいイメージを push しても Cloud Run が古いリビジョンを配信し続ける。
+IMAGE_TAG="$(date -u +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD 2>/dev/null || echo nogit)"
+export TF_VAR_image_tag="$IMAGE_TAG"
+echo "  イメージタグ: ${IMAGE_TAG}"
+
+docker build \
+  -t "${REGISTRY}/backend:${IMAGE_TAG}" \
+  -t "${REGISTRY}/backend:latest" \
+  ./apps/backend
+docker build \
   --build-arg "NEXT_PUBLIC_API_URL=${BACKEND_URL}" \
+  -t "${REGISTRY}/frontend:${IMAGE_TAG}" \
+  -t "${REGISTRY}/frontend:latest" \
   ./apps/home-app
 
 echo -e "${GREEN}ビルド完了${NC}"
@@ -144,6 +170,8 @@ echo -e "${GREEN}ビルド完了${NC}"
 echo -e "\n${YELLOW}Step 5: イメージを Artifact Registry に push しています...${NC}"
 
 gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+docker push "${REGISTRY}/backend:${IMAGE_TAG}"
+docker push "${REGISTRY}/frontend:${IMAGE_TAG}"
 docker push "${REGISTRY}/backend:latest"
 docker push "${REGISTRY}/frontend:latest"
 

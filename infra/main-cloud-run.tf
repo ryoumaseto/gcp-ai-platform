@@ -45,7 +45,7 @@ resource "google_cloud_run_v2_service" "frontend" {
     }
 
     containers {
-      image = "${var.gcp_region}-docker.pkg.dev/${var.gcp_project_id}/app-gen/frontend:latest"
+      image = "${var.gcp_region}-docker.pkg.dev/${var.gcp_project_id}/app-gen/frontend:${var.image_tag}"
 
       ports {
         container_port = 3000
@@ -112,7 +112,7 @@ resource "google_cloud_run_v2_service" "backend" {
     }
 
     containers {
-      image = "${var.gcp_region}-docker.pkg.dev/${var.gcp_project_id}/app-gen/backend:latest"
+      image = "${var.gcp_region}-docker.pkg.dev/${var.gcp_project_id}/app-gen/backend:${var.image_tag}"
 
       ports {
         container_port = 3001
@@ -129,10 +129,8 @@ resource "google_cloud_run_v2_service" "backend" {
         value = "true"
       }
 
-      env {
-        name  = "PORT"
-        value = "3001"
-      }
+      # PORT は Cloud Run の予約環境変数で、明示指定すると 400 で拒否される。
+      # container_port の値がシステムから自動的に注入される。
 
       env {
         name  = "DB_DIALECT"

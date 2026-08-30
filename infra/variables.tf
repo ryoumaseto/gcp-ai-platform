@@ -129,3 +129,13 @@ variable "vertex_location" {
   type        = string
   default     = "global"
 }
+
+# ===== Container images =====
+# :latest のままだと、新しいイメージを push しても Terraform の定義に
+# 差分が出ず、Cloud Run が新リビジョンを作らないため古いイメージが
+# 配信され続ける。ビルドごとに一意なタグを渡して確実に反映させる。
+variable "image_tag" {
+  description = "Container image tag to deploy. Use a unique value per build, not latest."
+  type        = string
+  default     = "latest"
+}
