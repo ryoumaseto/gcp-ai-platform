@@ -177,6 +177,33 @@ resource "google_cloud_run_v2_service" "backend" {
         value = local.cors_origins
       }
 
+      # ===== 生成アプリのデプロイに必要な設定 =====
+      env {
+        name  = "GCP_REGION"
+        value = var.gcp_region
+      }
+
+      env {
+        name  = "GENERATED_SOURCE_BUCKET"
+        value = google_storage_bucket.app_gen_source.name
+      }
+
+      # 権限を一切持たない SA。生成コードはこの権限で動く。
+      env {
+        name  = "GENERATED_APP_SA"
+        value = google_service_account.app_gen_generated.email
+      }
+
+      env {
+        name  = "GENERATED_IMAGES_REPO"
+        value = google_artifact_registry_repository.app_gen_generated.repository_id
+      }
+
+      env {
+        name  = "CLOUD_BUILD_SA"
+        value = google_service_account.app_gen_builder.email
+      }
+
       # ===== Secret Manager から注入 =====
       env {
         name = "DB_PASSWORD"
@@ -268,6 +295,11 @@ resource "google_cloud_run_v2_service" "backend" {
     google_secret_manager_secret_iam_member.app_gen_db_password,
     google_secret_manager_secret_iam_member.app_gen_jwt_secret,
     google_secret_manager_secret_iam_member.app_gen_gemini_api_key,
+    google_project_iam_member.app_gen_cloudbuild_editor,
+    google_project_iam_member.app_gen_run_admin,
+    google_service_account_iam_member.app_gen_can_act_as_generated,
+    google_storage_bucket_iam_member.app_gen_source_object_admin,
+    google_service_account_iam_member.app_gen_can_act_as_builder,
   ]
 }
 

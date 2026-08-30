@@ -80,6 +80,22 @@ output "vpc_connector_id" {
   value       = google_vpc_access_connector.connector.id
 }
 
+# ===== Generated App Deployment =====
+output "generated_source_bucket" {
+  description = "GCS bucket holding generated app source archives (30-day lifecycle)"
+  value       = google_storage_bucket.app_gen_source.name
+}
+
+output "generated_app_service_account" {
+  description = "Runtime service account email for generated apps (intentionally has zero IAM roles)"
+  value       = google_service_account.app_gen_generated.email
+}
+
+output "generated_images_repository" {
+  description = "Artifact Registry repository ID for generated app container images"
+  value       = google_artifact_registry_repository.app_gen_generated.repository_id
+}
+
 # ===== Deployment Summary =====
 output "deployment_info" {
   description = "Quick deployment reference"
@@ -91,4 +107,9 @@ output "deployment_info" {
     database_instance = google_sql_database_instance.main.name
     security_level    = "HIGH (100-point security audit)"
   }
+}
+
+output "generated_build_service_account" {
+  description = "Service account Cloud Build runs as when building generated apps"
+  value       = google_service_account.app_gen_builder.email
 }

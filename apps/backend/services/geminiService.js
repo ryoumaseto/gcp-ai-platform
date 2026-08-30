@@ -102,6 +102,11 @@ class GeminiService {
 
   /**
    * コード生成プロンプトを構築
+   *
+   * 以前は散文＋Markdown コードブロック混在の出力を要求していたが、
+   * それだと生成物を機械的にファイル群へ分解できず、Cloud Run への
+   * 自動デプロイが成立しない。そのため厳密な JSON マニフェスト 1 個だけを
+   * 返すよう指示する形に変更した（パース側は codeParser.js が担当）。
    */
   buildCodeGenerationPrompt(jobData) {
     return `
@@ -114,26 +119,63 @@ You are an expert software developer. Generate a complete, production-ready appl
 - Database: ${jobData.dbType}
 - Framework: ${jobData.language === 'TypeScript' ? 'Next.js + Express' : jobData.language === 'Python' ? 'FastAPI' : 'Gin'}
 
-**Requirements:**
-1. Generate a fully functional application structure
-2. Include proper error handling
-3. Implement security best practices
-4. Use the specified database
-5. Include API endpoints
-6. Write clean, well-documented code
-7. Include deployment instructions
+**Deployment target (must follow exactly):**
+The generated application will be deployed to Google Cloud Run as a single container. This
+imposes hard constraints on what you may generate:
 
-**Output Format:**
-Provide the implementation in the following sections:
-1. Project Structure
-2. Backend Implementation
-3. Frontend Implementation (if applicable)
-4. Database Schema
-5. API Endpoints
-6. Deployment Instructions
-7. Security Considerations
+1. The app MUST be a single-container HTTP server written in ${jobData.language}.
+2. The server MUST read the listening port from the \`PORT\` environment variable and bind
+   to it. Never hardcode a port number (e.g. 3000, 8080) — Cloud Run injects \`PORT\` at
+   runtime and the container will fail health checks if the port is hardcoded.
+3. The app MUST NOT connect to any external database (no PostgreSQL, MySQL, MongoDB, Redis,
+   etc. reachable over the network). It runs in an isolated environment with no network
+   access to a database. If the app needs to persist data, use an in-memory store or a
+   local SQLite file instead, regardless of the "Database" field above.
+4. Do NOT include a Dockerfile or any container build files — the platform generates the
+   Dockerfile separately.
+5. Implement proper error handling, security best practices, and clean, documented code.
+6. Include the necessary API endpoints for the described functionality.
 
-Generate comprehensive, production-ready code.
+**Size limits (hard limits, do not exceed):**
+- At most 40 files total.
+- Each file's content must be at most 100,000 characters (100KB).
+- The combined size of all file contents must be at most 2,000,000 characters (2MB).
+
+**Keep it small — this matters more than completeness:**
+- Aim for 5-10 files. Do not create folders or layers you do not actually use.
+- No tests, no CI config, no README, no .gitignore, no example/env files.
+- Prefer one dependency-light server file over a layered architecture.
+- A response that hits the model's output limit is truncated and therefore
+  unusable, so favour brevity. Cut scope, not correctness.
+
+**Output format (must follow exactly):**
+Respond with ONLY a single JSON object, wrapped in a single \`\`\`json code fence, and
+nothing else. Do NOT write any prose, explanation, greeting, or summary before or after the
+fence — the response must start with \`\`\`json and end with \`\`\` and contain no other text.
+
+The JSON object must have exactly this shape:
+
+\`\`\`json
+{
+  "files": [
+    { "path": "package.json", "content": "..." },
+    { "path": "src/index.js", "content": "..." }
+  ],
+  "port": 8080,
+  "start_command": "node src/index.js"
+}
+\`\`\`
+
+Where:
+- "files" is an array of objects, each with a "path" (relative path, no leading "/", no
+  ".." segments) and "content" (the full, literal file content as a string, with newlines
+  escaped as JSON requires).
+- "port" is the port number the server listens on by reading \`process.env.PORT\` (or the
+  equivalent for ${jobData.language}), defaulting to 8080 if unset.
+- "start_command" is the exact shell command used to start the server (e.g. "node
+  src/index.js", "python main.py", "npm start").
+
+Generate comprehensive, production-ready code inside that single JSON object.
 `;
   }
 
@@ -212,7 +254,9 @@ SEVERITY_COUNTS: critical=<n> high=<n> medium=<n> low=<n>
         ],
         generationConfig: {
           temperature: 0.3,
-          maxOutputTokens: 8192,
+          // アプリ一式の JSON マニフェストは 8192 では収まらず、
+          // 途中で切れた壊れた JSON がパーサに渡っていた。
+          maxOutputTokens: Number(process.env.GEMINI_MAX_OUTPUT_TOKENS || 32768),
           topP: 0.8,
         },
       }, { headers });
@@ -221,7 +265,24 @@ SEVERITY_COUNTS: critical=<n> high=<n> medium=<n> low=<n>
         throw new Error('No content generated from Gemini API');
       }
 
-      const generatedText = response.data.candidates[0].content.parts[0].text;
+      const candidate = response.data.candidates[0];
+
+      // 出力上限で打ち切られると、途中で切れた文字列がそのまま返る。
+      // これを検知せずに渡すと「JSON が壊れている」としか分からず、
+      // 原因が上限だったのか品質だったのか切り分けられない。
+      if (candidate.finishReason === 'MAX_TOKENS') {
+        throw new Error(
+          '生成が出力上限に達して途中で打ち切られました。' +
+            'より小さなアプリを指定するか、GEMINI_MAX_OUTPUT_TOKENS を増やしてください。'
+        );
+      }
+
+      const generatedText = candidate.content?.parts?.[0]?.text;
+      if (!generatedText) {
+        throw new Error(
+          `Gemini が本文を返しませんでした (finishReason=${candidate.finishReason || 'unknown'})`
+        );
+      }
       return {
         success: true,
         content: generatedText,

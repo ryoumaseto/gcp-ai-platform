@@ -1,6 +1,8 @@
 const { Op } = require('sequelize');
 const { Job } = require('../models');
 const geminiService = require('../services/geminiService');
+const { parseGeneratedCode } = require('../services/codeParser');
+const deployService = require('../services/deployService');
 
 // 1 ユーザーあたりのアプリ作成上限
 const JOB_LIMIT = 3;
@@ -237,9 +239,17 @@ exports.deleteJob = async (req, res) => {
       return res.status(403).json({ error: 'Unauthorized' });
     }
 
+    // 先に Cloud Run の生成アプリを消す。DB だけ消すと、
+    // 削除したはずのアプリが公開されたまま課金され続ける。
+    const removal = await deployService.deleteGeneratedApp(jobId);
+
     await job.destroy();
 
-    res.json({ message: 'Job deleted successfully' });
+    res.json({
+      message: 'Job deleted successfully',
+      // 消し漏れがあったことを隠さない（手動で消す判断ができるように）
+      ...(removal.success ? {} : { warning: `生成アプリの削除に失敗しました: ${removal.error}` }),
+    });
   } catch (error) {
     console.error('Error in deleteJob:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -338,15 +348,39 @@ async function finalizeJob(jobId) {
     job.progress = 85;
     await job.save();
 
-    // TODO: 生成コードの実デプロイ（Cloud Run へのビルド & デプロイ）を接続する。
-    // 現時点では生成成果物は designDocument / generatedCode として保持し、
-    // appUrl は実デプロイ実装まで null のままとする。
+    // 生成物をファイル群へ分解する。ここが通らなければデプロイのしようがない。
+    const parsed = parseGeneratedCode(job.generatedCode);
+    if (!parsed.success) {
+      throw new Error(`生成コードを解釈できませんでした: ${parsed.error}`);
+    }
+
+    const result = await deployService.deployGeneratedApp({
+      jobId,
+      files: parsed.files,
+      port: parsed.port,
+      startCommand: parsed.startCommand,
+      language: job.language,
+      // 進捗を画面へ反映する。ビルドは数分かかるため、
+      // 何も動かないと利用者には固まったように見える。
+      onProgress: async (message, progress) => {
+        const current = await Job.findByPk(jobId);
+        if (!current) return;
+        if (typeof progress === 'number') current.progress = progress;
+        await current.save();
+      },
+    });
+
+    if (!result.success) {
+      throw new Error(`デプロイに失敗しました: ${result.error}`);
+    }
+
+    job.appUrl = result.url;
     job.status = 'deployed';
     job.progress = 100;
     job.deployedAt = new Date();
     await job.save();
 
-    console.log(`[${jobId}] Job completed.`);
+    console.log(`[${jobId}] Deployed: ${result.url}`);
   } catch (error) {
     console.error(`[${jobId}] Finalize error:`, error.message);
     await markJobFailed(jobId, error.message);

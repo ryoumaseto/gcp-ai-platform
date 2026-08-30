@@ -34,6 +34,9 @@ resource "google_project_service" "required_apis" {
     "secretmanager.googleapis.com",
     "vpcaccess.googleapis.com",
     "aiplatform.googleapis.com",
+    # 生成アプリを Cloud Build 経由でビルド・デプロイするために必要
+    "cloudbuild.googleapis.com",
+    "storage.googleapis.com",
   ])
 
   service            = each.value

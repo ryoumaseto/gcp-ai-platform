@@ -33,7 +33,7 @@ const STATUS_META: Record<
   generating: { label: '生成中', className: 'bg-blue-100 text-blue-800', Icon: Loader2 },
   testing: { label: 'テスト中', className: 'bg-blue-100 text-blue-800', Icon: Loader2 },
   design_review: { label: '設計書レビュー待ち', className: 'bg-amber-100 text-amber-800', Icon: FileSearch },
-  approved: { label: '承認済み', className: 'bg-indigo-100 text-indigo-800', Icon: CheckCircle2 },
+  approved: { label: 'デプロイ中', className: 'bg-indigo-100 text-indigo-800', Icon: Loader2 },
   deployed: { label: 'デプロイ完了', className: 'bg-green-100 text-green-800', Icon: CheckCircle2 },
   failed: { label: '失敗', className: 'bg-red-100 text-red-800', Icon: XCircle },
 };
@@ -230,7 +230,9 @@ export default function JobsPage() {
                           className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold ${className}`}
                         >
                           <Icon
-                            className={`h-4 w-4 ${inProgress && job.status !== 'design_review' ? 'animate-spin' : ''}`}
+                            className={`h-4 w-4 ${
+                              inProgress && job.status !== 'design_review' ? 'animate-spin' : ''
+                            }`}
                             aria-hidden
                           />
                           {label}

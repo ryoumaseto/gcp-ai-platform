@@ -48,7 +48,7 @@ export default function JobStatus({ jobId }: JobStatusProps) {
     generating: '生成中',
     testing: 'テスト中',
     design_review: '設計レビュー',
-    approved: '承認済み',
+    approved: 'デプロイ中',
     deployed: 'デプロイ完了',
     failed: 'エラー',
   };
@@ -136,8 +136,9 @@ export default function JobStatus({ jobId }: JobStatusProps) {
 
         {job.status === 'deployed' && job.appUrl && (
           <div className="space-y-3">
-            <div className="p-4 bg-green-50 border border-green-200 rounded-md">
+            <div className="p-4 bg-green-50 border border-green-200 rounded-md space-y-1">
               <p className="text-sm text-green-800">アプリがデプロイされました</p>
+              <p className="text-xs text-green-700 break-all">{job.appUrl}</p>
             </div>
             <Button
               type="button"
