@@ -20,11 +20,19 @@ locals {
   frontend_url = var.frontend_domain != "" ? "https://${var.frontend_domain}" : local.frontend_run_url
   backend_url  = var.backend_domain != "" ? "https://${var.backend_domain}" : local.backend_run_url
 
-  # CORS 許可オリジン。ドメインマッピングは証明書発行まで時間がかかり、
-  # その間は Cloud Run の URL でもアクセスされるため両方を許可する。
+  # CORS 許可オリジン。
+  # Cloud Run は同じサービスを 2 通りの URL で配信する:
+  #   https://app-gen-frontend-<hash>-an.a.run.app          （旧形式）
+  #   https://app-gen-frontend-<project number>.<region>.run.app （新形式）
+  # どちらでもアクセスできてしまうため、片方しか許可しないと
+  # もう片方から来たブラウザはプリフライトで遮断され、
+  # 「通信に失敗した」ようにしか見えない。両方を許可する。
+  # ドメインマッピング利用時は証明書発行までの間 Cloud Run URL も使われるので、
+  # カスタムドメインと併せて 3 つを許可することになる。
   cors_origins = join(",", distinct(compact([
     local.frontend_url,
     local.frontend_run_url,
+    local.predicted_frontend_url,
   ])))
 }
 
