@@ -26,6 +26,17 @@
 - VPC コネクタを付けない（Cloud SQL や内部ネットワークに到達できない）
 - リソース上限と最大インスタンス数を制限
 
+## 設計判断
+
+- **AI の出力を信用しない。** 生成コードは、権限ゼロの専用サービスアカウント・VPC 接続なし・リソース上限付きの Cloud Run で動かします。侵害されても Cloud SQL や内部ネットワーク、他のシークレットに届かないようにするためです。生成物のファイルパスは書き出し時に検証します（パス・トラバーサル対策）。
+- **権限は最小に。** Secret Manager へのアクセス権は、プロジェクト全体ではなくシークレットごとに付与します。
+- **API キーを持たない。** 本番の Gemini 呼び出しはサービスアカウント認証（Vertex 方式）です。キーのローテーションや漏えいを考えなくて済みます。
+- **実環境で見つけた不具合を直す。** Gemini の一時的な失敗はリトライし、デプロイした生成アプリが実際に応答するかを検証して、失敗時は理由を渡して再生成します。コミット履歴に、実際の GCP で動かして見つけた不具合の修正が残っています。
+
+## 運用上の注意
+
+誰でも生成を実行できる状態で公開すると、Gemini と Cloud Build の料金が膨らみます。デモを公開する場合は、招待制にするか、1日の実行回数に上限を設けてください。
+
 ## ローカルで動かす
 
 必要なもの: Docker / Docker Compose
@@ -44,7 +55,7 @@ docker compose up --build
 - フロントエンド: http://localhost:3000
 - バックエンド: http://localhost:3001
 
-テスト:
+テスト（GitHub Actions でも `npm test`、フロントの型チェック、`terraform fmt` / `validate` を実行します）:
 
 ```bash
 cd apps/backend && npm install && npm test
@@ -71,11 +82,11 @@ export GCP_PROJECT_ID=your-project-id
 
 手順の詳細:
 
-- [GCP_SETUP.md](GCP_SETUP.md): プロジェクトと State バケットの準備
+- [GCP_SETUP.md](docs/GCP_SETUP.md): プロジェクトと State バケットの準備
 - [infra/README.md](infra/README.md): Terraform の使い方（`terraform.tfvars.example` をコピーして編集）
-- [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md): デプロイ全体の流れ
-- [DOMAIN_SETUP.md](DOMAIN_SETUP.md): カスタムドメイン
-- [AUTHENTICATION_GUIDE.md](AUTHENTICATION_GUIDE.md): 認証の仕様
+- [DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md): デプロイ全体の流れ
+- [DOMAIN_SETUP.md](docs/DOMAIN_SETUP.md): カスタムドメイン
+- [AUTHENTICATION_GUIDE.md](docs/AUTHENTICATION_GUIDE.md): 認証の仕様
 
 `terraform.tfvars`、`.terraform/`、`*.tfstate` は Git に含めません（`.gitignore` 済み）。
 

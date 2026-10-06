@@ -151,7 +151,7 @@ gh secret set TF_BACKEND_BUCKET -b "${GCP_PROJECT_ID}-terraform-state"
 gh secret set GCP_PROJECT_ID -b "$GCP_PROJECT_ID"
 ```
 
-詳細は [GCP_SETUP.md](../GCP_SETUP.md) を参照。
+詳細は [GCP_SETUP.md](../docs/GCP_SETUP.md) を参照。
 
 ## 📖 参考資料
 
