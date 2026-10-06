@@ -88,7 +88,7 @@ class GeminiService {
 
     const project = getProjectId();
     if (!project) {
-      throw new Error('GCP_PROJECT_ID is not configured (required for Vertex AI)');
+      throw new Error('GCP_PROJECT_ID is not configured (required for Gemini Enterprise Agent Platform)');
     }
 
     const location = getLocation();
